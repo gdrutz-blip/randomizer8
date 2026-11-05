@@ -414,8 +414,8 @@ function showQuote(animate){
 const ANIMS={full:'Big shuffle',quick:'Quick shuffle',off:'No animation'};
 
 const DEFAULT_LISTS=[
-  ['8A',[]],
-  ['8B',[]]
+  ['DRUTZ 8A','8A',['Abby','Ahaana','Anabia','Arun','Athena','Avery','Callen','Crystal','Eddie','Eden','Evan','Hadi','Kalai','Keerthan','Keerthana','Kenzie','Kopiga','Lauren','Maya','Melody','Nadeen','Parth','Prathika','Rayden','Rex','Shanlyn','Terrence','Theo','Winnie','Zoha']],
+  ['KIRKBY 8B','8B',['Abina','Addison','Akshara','Alice','Amelia','Andre','Aarush','Ben','Chase','Chloe','Clara','Damon','Danika','Deane','Evey','Haley','Haneeshga','Harshini','Isabella','Jenny','Kai','Kishaani','Liam','Luca','Rilan','Samara','Sid','Talia','Victor']]
 ];
 
 const defaultSettings=()=>({mode:'size',size:3,count:8,leftover:'smaller',titleStyle:'boards',titleList:'',avoidRepeats:true,marker:false});
@@ -424,13 +424,15 @@ function newClass(name){return {id:uid(),name:name||'My class',students:[],rules
 function seed(s){
   s.classes=s.classes.filter(k=>!k.sample);
   const findName=n=>s.classes.find(k=>k.name.trim().toLowerCase()===n.toLowerCase());
-  const ids=DEFAULT_LISTS.map(([name,names])=>{
-    let c=findName(name);
-    if(!c){c=newClass(name);c.students=names.map(n=>({id:uid(),name:n,absent:false}));s.classes.push(c)}
+  const ids=DEFAULT_LISTS.map(([name,alt,names])=>{
+    let c=findName(name)||findName(alt);
+    if(!c){c=newClass(name);s.classes.push(c)}
+    if(!c.sources&&!c.students.length){c.name=name;c.students=names.map(n=>({id:uid(),name:n,absent:false}))}
     return c.id;
   });
   if(!findName('All Grade 8')){const all=newClass('All Grade 8');all.sources=ids;s.classes.push(all)}
-  s.currentId=ids[0];s.seed=2;
+  if(!s.classes.some(c=>c.id===s.currentId))s.currentId=ids[0];
+  if(!s.seed)s.seed=2;s.lists=1;
   return s;
 }
 function valid(s){return s&&Array.isArray(s.classes)&&s.classes.every(c=>c&&c.id&&Array.isArray(c.students))}
@@ -453,7 +455,7 @@ function load(){
   let s=null;
   try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(valid(p))s=p}}catch(e){}
   if(!s)s={classes:[],absentDay:today(),sound:false};
-  if(!s.seed)seed(s);
+  if(!s.lists)seed(s);
   return s;
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(store))}catch(e){}}
