@@ -312,6 +312,7 @@ details.backup[open] summary{margin-bottom:10px}
     <div class="issues" id="issues"></div>
     <div class="board" id="board"></div>
     <p class="note" id="swap-hint"></p>
+    <div class="row" id="keep-row"></div>
     <div class="fallback" id="copy-fallback"></div>
     <div class="tray">
       <div class="tray-head"><h2>Group history</h2><span class="note" id="hist-count"></span></div>
@@ -450,6 +451,7 @@ function normalize(s){
   if(!s.classes.length)s.classes.push(newClass('My class'));
   if(!s.classes.some(c=>c.id===s.currentId))s.currentId=s.classes[0].id;
   s.seed=Math.max(s.seed||0,3);
+  s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];
   s.skin=s.skin||'auto';s.anim=s.anim||'full';s.pickNoRepeat=s.pickNoRepeat!==false;
   return s;
 }
@@ -464,7 +466,7 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(store))}catch(e){}}
 
 let store=normalize(load());save();
 const ui={editRoster:false,editSources:false,classMode:'view',confirmDel:false,draft:{type:'apart',ids:[],who:''},sel:null,dealing:false,
-  histStudent:'',openRounds:new Set(),confirmRound:null,pickMode:'student',picking:false};
+  histStudent:'',openRounds:new Set(),tsetMode:null,tsetDel:false,confirmRound:null,pickMode:'student',picking:false};
 const cls=()=>store.classes.find(c=>c.id===store.currentId);
 const byId=id=>store.classes.find(c=>c.id===id);
 const cur=c=>c.cleared?null:(c.rounds[0]||null);
@@ -492,7 +494,7 @@ function checkDay(){
 }
 
 /* ---------- planning & generating ---------- */
-const titleNames=st=>st.titleList.split(/[\r\n,]+/).map(s=>s.trim()).filter(Boolean);
+const titleNames=st=>st.titleList.split(/[\r\n,.]+/).map(s=>s.trim()).filter(Boolean);
 function titleFor(i,st){
   if(st.titleStyle==='list'){const l=titleNames(st);return l[i]||('Board '+(i+1))}
   return 'Board '+(i+1);
@@ -671,11 +673,23 @@ function renderSettings(){
   <select id="titleStyle">
     <option value="boards"${st.titleStyle==='boards'?' selected':''}>Board 1, Board 2, …</option>
     <option value="list"${st.titleStyle==='list'?' selected':''}>Custom names</option></select>
-  ${st.titleStyle==='list'?`<textarea id="titleList" rows="4" placeholder="Primes, Squares, Cubes, Fractions">${esc(st.titleList)}</textarea><p class="note" id="title-count">${titleCountNote(st)}</p>`:''}
+  ${st.titleStyle==='list'?`<div id="tset-bar">${tsetBar(st)}</div><textarea id="titleList" rows="4" placeholder="Primes, Squares, Cubes, Fractions">${esc(st.titleList)}</textarea><p class="note" id="title-count">${titleCountNote(st)}</p>`:''}
   <label class="check"><input type="checkbox" id="avoid"${st.avoidRepeats?' checked':''}> Try not to repeat partners from the last 3 rounds</label>
   <label class="check"><input type="checkbox" id="marker"${st.marker?' checked':''}> Pick who holds the marker first in each group</label>`;
 }
-function titleCountNote(st){const n=titleNames(st).length;return `${n?n+' name'+(n===1?'':'s')+'. ':''}Separate names with commas or new lines. Groups past the end of your list are numbered. You can also rename any group on the board.`}
+/* saved name lists are shared by all classes */
+function tsetBar(st){
+  const sets=store.titleSets,curSet=sets.find(t=>t.id===st.titleSetId);
+  if(ui.tsetMode)return `<div class="row"><label class="sr" for="tset-name">List name</label><input type="text" id="tset-name" placeholder="Name this list, e.g. Math boards" value="${ui.tsetMode==='rename'&&curSet?esc(curSet.name):''}" style="flex:1 1 160px;width:auto"><button class="btn primary small" data-act="tset-ok">Save</button><button class="btn small" data-act="tset-cancel">Cancel</button></div>`;
+  const changed=curSet&&curSet.text!==st.titleList;
+  return `<div class="row">
+    ${sets.length?`<label class="sr" for="titleSet">Saved name lists</label><select id="titleSet" style="flex:1 1 150px;width:auto"><option value="">${curSet?'Not from a saved list':'Pick a saved list…'}</option>${sets.map(t=>`<option value="${t.id}"${t.id===st.titleSetId?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`:''}
+    ${changed?`<button class="btn small primary" data-act="tset-update">Save changes to “${esc(curSet.name)}”</button>`:''}
+    <button class="btn small" data-act="tset-new"${titleNames(st).length?'':' disabled'}>Save as a new list</button>
+    ${curSet?`<button class="btn small ghost" data-act="tset-rename">Rename</button><button class="btn small ghost${ui.tsetDel?' danger':''}" data-act="tset-del">${ui.tsetDel?'Tap again to delete':'Delete'}</button>`:''}
+  </div>`;
+}
+function titleCountNote(st){const n=titleNames(st).length;return `${n?n+' name'+(n===1?'':'s')+'. ':''}Separate names with commas, periods or new lines. Groups past the end of your list are numbered.`}
 function picker(ids,scope,label,exclude){
   const avail=studentsOf(cls()).filter(s=>!ids.includes(s.id)&&!(exclude&&exclude.has(s.id)));
   return `<div class="picker">${ids.map(id=>`<span class="chip">${esc(nameOf(id))}<button data-act="pick-rm" data-scope="${scope}" data-id="${id}" aria-label="Remove ${esc(nameOf(id))}">×</button></span>`).join('')}
@@ -721,7 +735,7 @@ function renderResults(){
   if(!groups||!groups.length){
     const here=hereOf(c).length;
     el.innerHTML=`<div class="empty" style="grid-column:1/-1"><p class="empty-h">No groups yet</p><p>${here?`Open <b>Class view</b> on the projector and press <b>Shuffle!</b> so the class sees the groups being made. Or press <b>Make groups</b> to make them here first.`:'Add your students to get started.'}</p></div>`;
-    issuesEl.innerHTML='';$('#board-meta').innerHTML=`<b>${esc(c.name)}</b>`;$('#swap-hint').textContent='';return;
+    issuesEl.innerHTML='';$('#keep-row').innerHTML='';$('#board-meta').innerHTML=`<b>${esc(c.name)}</b>`;$('#swap-hint').textContent='';return;
   }
   $('#board-meta').innerHTML=`<b>${esc(c.name)}</b> · ${groups.length} groups · made ${fmtWhen(new Date(cur(c).at))}`;
   const sel=ui.sel;
@@ -731,6 +745,7 @@ function renderResults(){
     ${sel&&sel.gi!==gi?`<button class="btn small moveto" data-act="move" data-gi="${gi}">Move ${esc(nameOf(sel.id))} here</button>`:''}</article>`).join('');
   const issues=check(c,groups);
   issuesEl.innerHTML=issues.length?issues.map(t=>`<p class="issue">${t}</p>`).join(''):(rulesOf(c).length||c.custom.length?'<p class="allgood">Every rule is met.</p>':'');
+  $('#keep-row').innerHTML=`<button class="btn small" data-act="keep-titles">Keep these group names</button><span class="note">Renamed a group above? This uses the same names next time you shuffle.</span>`;
   $('#swap-hint').innerHTML=sel?`${esc(nameOf(sel.id))} is selected. Tap another name to swap, or use “Move here” on a group.`:`Tap two names to swap them between groups. Tap a group name to rename it.${c.settings.marker?' The marker icon shows who writes first.':''}`;
 }
 function renderHistory(){
@@ -980,6 +995,27 @@ function groupsText(){
 function checkedSources(){return [...document.querySelectorAll('.srcbox:checked')].map(b=>b.value)}
 
 const acts={
+  'tset-new'(){ui.tsetMode='new';ui.tsetDel=false;renderSettings();setTimeout(()=>{const i=$('#tset-name');if(i)i.focus()})},
+  'tset-rename'(){ui.tsetMode='rename';ui.tsetDel=false;renderSettings();setTimeout(()=>{const i=$('#tset-name');if(i){i.focus();i.select()}})},
+  'tset-cancel'(){ui.tsetMode=null;renderSettings()},
+  'tset-ok'(){
+    const st=cls().settings,name=($('#tset-name').value||'').trim();if(!name){$('#tset-name').focus();return}
+    if(ui.tsetMode==='rename'){const set=store.titleSets.find(x=>x.id===st.titleSetId);if(set)set.name=name}
+    else{const set={id:uid(),name,text:st.titleList};store.titleSets.push(set);st.titleSetId=set.id}
+    ui.tsetMode=null;save();renderSettings();
+  },
+  'tset-update'(){const st=cls().settings,set=store.titleSets.find(x=>x.id===st.titleSetId);if(set){set.text=st.titleList;save();renderSettings()}},
+  'tset-del'(){
+    const st=cls().settings;
+    if(!ui.tsetDel){ui.tsetDel=true;renderSettings();setTimeout(()=>{if(ui.tsetDel){ui.tsetDel=false;renderSettings()}},4000);return}
+    store.titleSets=store.titleSets.filter(x=>x.id!==st.titleSetId);store.classes.forEach(k=>{if(k.settings.titleSetId===st.titleSetId)k.settings.titleSetId=null});
+    ui.tsetDel=false;save();renderSettings();
+  },
+  'keep-titles'(b){
+    const c=cls(),groups=liveGroups(c);if(!groups)return;
+    c.settings.titleStyle='list';c.settings.titleList=groups.map(g=>g.title.replace(/[.,]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');c.settings.titleSetId=null;
+    save();renderSettings();b.textContent='Kept';setTimeout(()=>{if(b.isConnected)b.textContent='Keep these group names'},1500);
+  },
   'clear'(){const c=cls();if(ui.dealing||!cur(c))return;c.cleared=true;ui.sel=null;save();renderResults();renderHistory();if(!$('#present').hidden)renderPresent()},
   'quote'(){showQuote(true)},
   'generate'(){if(doGenerate()){flickerBoard();showQuote(true)}},
@@ -1088,6 +1124,7 @@ document.addEventListener('change',e=>{
     const again=document.querySelector(`.pick-add[data-scope="${t.dataset.scope}"]`);if(again)again.focus();return}
   if(t.id==='classpick'){store.currentId=t.value;ui.sel=null;ui.editRoster=false;ui.editSources=false;ui.draft.ids=[];ui.draft.who='';ui.confirmDel=false;ui.histStudent='';save();renderAll();return}
   if(t.id==='draft-who'){ui.draft.who=t.value;ui.draft.ids=ui.draft.ids.filter(id=>id!==t.value);renderRules();return}
+  if(t.id==='titleSet'){const set=store.titleSets.find(x=>x.id===t.value);if(set){c.settings.titleList=set.text;c.settings.titleSetId=set.id}else c.settings.titleSetId=null;ui.tsetDel=false;save();renderSettings();return}
   if(t.id==='leftover'){c.settings.leftover=t.value;save();renderSettings();return}
   if(t.id==='titleStyle'){c.settings.titleStyle=t.value;save();renderSettings();return}
   if(t.id==='avoid'){c.settings.avoidRepeats=t.checked;save();return}
@@ -1100,7 +1137,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('input',e=>{
   const t=e.target,c=cls();
   if(t.id==='num'){const v=parseInt(t.value,10);if(v>0){c.settings[c.settings.mode==='size'?'size':'count']=Math.min(60,v);save();$('#plan-summary').innerHTML=summary(plan(c))}return}
-  if(t.id==='titleList'){c.settings.titleList=t.value;save();const n=$('#title-count');if(n)n.textContent=titleCountNote(c.settings);return}
+  if(t.id==='titleList'){c.settings.titleList=t.value;save();const n=$('#title-count');if(n)n.textContent=titleCountNote(c.settings);const tb=$('#tset-bar');if(tb&&!ui.tsetMode)tb.innerHTML=tsetBar(c.settings);return}
   if(t.classList.contains('ctitle')){const g=c.custom.find(g=>g.id===t.dataset.cid);g.title=t.value;save();return}
   if(t.classList.contains('gtitle')&&cur(c)){cur(c).groups[+t.dataset.gi].title=t.value;save();return}
 });
@@ -1108,6 +1145,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(d.classList&&d.classL
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){if(!$('#pick').hidden){$('#pick').hidden=true;return}if(!$('#present').hidden)closePresent()}
   if(e.key==='Enter'&&e.target.id==='classname')acts['class-ok']();
+  if(e.key==='Enter'&&e.target.id==='tset-name')acts['tset-ok']();
 });
 let fitTimer=null;const refit=()=>{clearTimeout(fitTimer);fitTimer=setTimeout(()=>{if(!ui.dealing)fitPresent()},120)};
 window.addEventListener('resize',refit);document.addEventListener('fullscreenchange',refit);
