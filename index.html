@@ -150,6 +150,8 @@ input[type=checkbox]{accent-color:var(--accent)}
 .tag.apart{color:var(--m3);border:1px solid currentColor}
 .tag.together{color:var(--m2);border:1px solid currentColor}
 .tag.oneof{color:var(--m4);border:1px solid currentColor}
+.tag.min3{color:var(--m5);border:1px solid currentColor}
+.seg4{display:grid;grid-template-columns:1fr 1fr}
 .rule .names{font-size:14px;min-width:0;overflow-wrap:anywhere}
 .from{font-size:12px;color:var(--muted);white-space:nowrap}
 .draft{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px dashed var(--line);border-radius:9px}
@@ -515,6 +517,15 @@ function plan(c){
   if(!groups.length&&n)groups.push({customId:null,title:'',cap:n,pinned:[],fixed:false});
   let total=groups.reduce((a,g)=>a+g.cap,0);
   while(total<n){let best=null;groups.forEach(g=>{if(g.fixed)return;if(!best||g.cap<best.cap)best=g});if(!best)best=groups[groups.length-1];best.cap++;total++}
+  /* "never a pair": if every group would be 2 or smaller, make one group of 3 */
+  const needBig=rulesOf(c).some(r=>r.type==='min3'&&r.ids.some(id=>pset.has(id)));
+  if(needBig&&!groups.some(g=>g.cap>=3)){
+    const free=groups.filter(g=>!g.fixed&&g.cap>0).sort((a,b)=>b.cap-a.cap);
+    if(free.length>=2){
+      const top=free[0],last=free[free.length-1];top.cap++;last.cap--;
+      if(last.cap===1){const t=free.find(g=>g!==top&&g!==last&&g.cap<3)||top;t.cap++;last.cap=0}
+    }
+  }
   return {present,groups,n};
 }
 function summary(p){
@@ -535,6 +546,7 @@ function generate(c,history){
   const apart={};rules.filter(r=>r.type==='apart').forEach(r=>{const ids=r.ids.filter(id=>pset.has(id));ids.forEach(a=>ids.forEach(b=>{if(a!==b)(apart[a]=apart[a]||new Set()).add(b)}))});
   /* "with at least one of" rules: needs[x] lists x's option sets, wantedBy[o] lists rules where o is an option */
   const oneof=rules.filter(r=>r.type==='oneof'&&pset.has(r.who)).map(r=>({who:r.who,opts:r.ids.filter(id=>pset.has(id)&&id!==r.who)})).filter(r=>r.opts.length);
+  const big=new Set(rules.filter(r=>r.type==='min3').flatMap(r=>r.ids).filter(id=>pset.has(id)));
   const needs={},wantedBy={};
   oneof.forEach(r=>{(needs[r.who]=needs[r.who]||[]).push(r.opts);r.opts.forEach(o=>(wantedBy[o]=wantedBy[o]||[]).push(r))});
   const recent=new Map();
@@ -552,6 +564,7 @@ function generate(c,history){
         const room=groups[gi].cap-m.length;let cost=0;
         if(u.ids.some(a=>apart[a]&&m.some(b=>apart[a].has(b))))cost+=1000;
         if(room<u.ids.length)cost+=100*(u.ids.length-room);
+        if(big.size&&groups[gi].cap<3&&u.ids.some(a=>big.has(a)))cost+=1000;
         if(recent.size)u.ids.forEach(a=>m.forEach(b=>{cost+=recent.get(pairKey(a,b))||0}));
         if(oneof.length)u.ids.forEach(a=>{
           (needs[a]||[]).forEach(opts=>{if(opts.some(o=>u.ids.includes(o)))return;if(opts.some(o=>whereG[o]!==undefined)&&!opts.some(o=>whereG[o]===gi))cost+=60});
@@ -562,6 +575,7 @@ function generate(c,history){
       const gi=pickOne(opts);gs[gi].push(...u.ids);u.ids.forEach(id=>whereG[id]=gi);score+=min;
     }
     oneof.forEach(r=>{if(!r.opts.some(o=>whereG[o]===whereG[r.who]))score+=1000});
+    big.forEach(id=>{if(gs[whereG[id]].length<3)score+=1000});
     if(!best||score<best.score)best={score,gs};
     if(score===0)break;
   }
@@ -579,6 +593,10 @@ function check(c,groups){
       if(where[r.who]===undefined)return;
       const opts=r.ids.filter(id=>where[id]!==undefined&&id!==r.who);
       if(opts.length&&!opts.some(o=>where[o]===where[r.who]))issues.push(`<b>${nm(r.who)}</b> should be with ${opts.map(id=>'<b>'+nm(id)+'</b>').join(' or ')}.`);
+      return;
+    }
+    if(r.type==='min3'){
+      r.ids.forEach(id=>{const gi=where[id];if(gi!==undefined&&groups[gi].ids.length<3)issues.push(`<b>${nm(id)}</b> is in ${esc(groups[gi].title)}, a group of ${groups[gi].ids.length}, but should be in a group of 3 or more.`)});
       return;
     }
     const ids=r.ids.filter(id=>where[id]!==undefined);
@@ -663,18 +681,19 @@ function picker(ids,scope,label,exclude){
   return `<div class="picker">${ids.map(id=>`<span class="chip">${esc(nameOf(id))}<button data-act="pick-rm" data-scope="${scope}" data-id="${id}" aria-label="Remove ${esc(nameOf(id))}">×</button></span>`).join('')}
   <select class="pick-add" data-scope="${scope}" aria-label="${label}"><option value="">+ Add a student</option>${avail.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>`;
 }
-function draftReady(){const d=ui.draft;return d.type==='oneof'?!!(d.who&&d.ids.filter(id=>id!==d.who).length):d.ids.length>=2}
+function draftReady(){const d=ui.draft;return d.type==='min3'?d.ids.length>=1:d.type==='oneof'?!!(d.who&&d.ids.filter(id=>id!==d.who).length):d.ids.length>=2}
 function renderRules(){
   const c=cls(),d=ui.draft,el=$('#rules');const rules=rulesOf(c);
-  el.innerHTML=`<div class="rules">${rules.map(r=>`<div class="rule"><span class="tag ${r.type}">${r.type==='apart'?'Apart':r.type==='oneof'?'One of':'Together'}</span><span class="names">${r.type==='oneof'?`<b>${esc(nameOf(r.who))}</b> with ${r.ids.map(id=>esc(nameOf(id))).join(' or ')}`:r.ids.map(id=>esc(nameOf(id))).join(', ')}</span>${r.from?`<span class="from">from ${esc(r.from)}</span>`:`<button class="btn ghost small" data-act="rule-del" data-id="${r.id}">Remove</button>`}</div>`).join('')||'<p class="note">No rules yet.</p>'}</div>
+  el.innerHTML=`<div class="rules">${rules.map(r=>`<div class="rule"><span class="tag ${r.type}">${r.type==='apart'?'Apart':r.type==='oneof'?'One of':r.type==='min3'?'3 or more':'Together'}</span><span class="names">${r.type==='oneof'?`<b>${esc(nameOf(r.who))}</b> with ${r.ids.map(id=>esc(nameOf(id))).join(' or ')}`:r.ids.map(id=>esc(nameOf(id))).join(', ')+(r.type==='min3'?' <span class="from">always in a group of 3+</span>':'')}</span>${r.from?`<span class="from">from ${esc(r.from)}</span>`:`<button class="btn ghost small" data-act="rule-del" data-id="${r.id}">Remove</button>`}</div>`).join('')||'<p class="note">No rules yet.</p>'}</div>
   <div class="draft">
-    <div class="seg" role="radiogroup" aria-label="Rule type">
+    <div class="seg seg4" role="radiogroup" aria-label="Rule type">
       <button role="radio" aria-checked="${d.type==='apart'}" data-act="draft-type" data-v="apart">Keep apart</button>
       <button role="radio" aria-checked="${d.type==='together'}" data-act="draft-type" data-v="together">Keep together</button>
-      <button role="radio" aria-checked="${d.type==='oneof'}" data-act="draft-type" data-v="oneof">With one of</button></div>
+      <button role="radio" aria-checked="${d.type==='oneof'}" data-act="draft-type" data-v="oneof">With one of</button>
+      <button role="radio" aria-checked="${d.type==='min3'}" data-act="draft-type" data-v="min3">Never a pair</button></div>
     ${d.type==='oneof'?`<label class="lbl" for="draft-who">Student</label><select id="draft-who"><option value="">Choose a student…</option>${studentsOf(c).map(s=>`<option value="${s.id}"${s.id===d.who?' selected':''}>${esc(s.name)}</option>`).join('')}</select><label class="lbl">must be with at least one of</label>`:''}
     ${picker(d.ids,'draft','Add a student to this rule',d.type==='oneof'&&d.who?new Set([d.who]):null)}
-    <div class="row"><button class="btn primary small" data-act="rule-add"${draftReady()?'':' disabled'}>Add rule</button><span class="note">${d.type==='apart'?'None of these students will share a group.':d.type==='oneof'?'Satisfied when the student shares a group with any one of these.':'These students will always share a group.'}</span></div>
+    <div class="row"><button class="btn primary small" data-act="rule-add"${draftReady()?'':' disabled'}>Add rule</button><span class="note">${d.type==='apart'?'None of these students will share a group.':d.type==='oneof'?'Satisfied when the student shares a group with any one of these.':d.type==='min3'?'Each of these students will always be in a group of 3 or more, never in a pair.':'These students will always share a group.'}</span></div>
   </div>`;
 }
 function renderCustom(){
@@ -939,7 +958,7 @@ function doGenerate(){
 function pruneAll(){
   store.classes.forEach(c=>{
     const keep=new Set(studentsOf(c).map(s=>s.id));
-    c.rules=c.rules.map(r=>Object.assign(r,{ids:r.ids.filter(id=>keep.has(id))})).filter(r=>r.type==='oneof'?(keep.has(r.who)&&r.ids.length>=1):r.ids.length>=2);
+    c.rules=c.rules.map(r=>Object.assign(r,{ids:r.ids.filter(id=>keep.has(id))})).filter(r=>r.type==='oneof'?(keep.has(r.who)&&r.ids.length>=1):r.type==='min3'?r.ids.length>=1:r.ids.length>=2);
     c.custom.forEach(g=>g.ids=g.ids.filter(id=>keep.has(id)));
   });
   const keep=new Set(studentsOf(cls()).map(s=>s.id));ui.draft.ids=ui.draft.ids.filter(id=>keep.has(id));if(!keep.has(ui.draft.who))ui.draft.who='';
