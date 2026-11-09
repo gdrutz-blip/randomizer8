@@ -231,6 +231,8 @@ details.backup[open] summary{margin-bottom:10px}
 .shuffle:active{transform:translateY(3px);box-shadow:0 1px 0 color-mix(in srgb,var(--accent) 60%,var(--ink))}
 .shuffle:disabled{opacity:.7;cursor:progress}
 .tool{font-size:17px;padding:10px 16px;border-radius:12px}
+.anim-select{width:auto;max-width:150px;padding:5px 8px;font-size:13px;font-weight:700;background:transparent;border-color:transparent;color:var(--muted)}
+.anim-select:hover{border-color:var(--line);color:var(--ink)}
 .small-ctrl{display:flex;gap:2px;flex-wrap:wrap}
 .timer-face{font-variant-numeric:tabular-nums;font-weight:700;font-size:clamp(34px,4.6vw,68px);line-height:1;padding:6px 20px;border-radius:14px;border:2px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;min-width:4.2ch}
 .timer-face.low{color:var(--warn);border-color:var(--warn)}
@@ -245,6 +247,7 @@ details.backup[open] summary{margin-bottom:10px}
 .pcard h3{font-family:var(--font-display);color:var(--m);font-size:var(--pt,32px);line-height:1.1;margin-bottom:.25em;white-space:nowrap}
 .pcard ul{list-style:none;margin:0;padding:0}
 .pn{font-size:var(--ps,26px);font-weight:700;line-height:1.3;min-height:1.3em;display:flex;align-items:center;gap:.3em;white-space:nowrap}
+.pn.spinning{color:var(--muted)}
 .land{animation:land .35s ease-out}
 @keyframes land{0%{transform:scale(1.12)}100%{transform:none}}
 .cloud{display:flex;flex-wrap:wrap;gap:12px 26px;justify-content:center;align-content:center;padding:2vh 2vw;font-size:var(--cs,30px);font-weight:700;min-height:100%}
@@ -333,6 +336,8 @@ details.backup[open] summary{margin-bottom:10px}
       <button class="btn tool" data-act="timer-panel">Timer</button>
       <div class="small-ctrl">
         <button class="btn ghost small" data-act="clear" id="clear-btn-p">Clear groups</button>
+        <label class="sr" for="anim-style">Animation</label>
+        <select id="anim-style" class="anim-select" title="Shuffle animation. Surprise me picks a different one each time."></select>
         <button class="btn ghost small" data-act="anim" id="anim-btn"></button>
         <button class="btn ghost small" data-act="sound" id="sound-btn"></button>
         <button class="btn ghost small" data-act="present-close">Teacher view</button>
@@ -414,16 +419,15 @@ function showQuote(animate){
   els.forEach(el=>el.classList.add('fade'));setTimeout(put,220);
   const b=$('#quote-btn');b.classList.remove('roll');void b.offsetWidth;b.classList.add('roll');
 }
-const ANIMS={full:'Big shuffle',quick:'Quick shuffle',off:'No animation'};
+const ANIMS={full:'Normal speed',quick:'Quick'};
+const STYLES={tumble:'Tumble',slot:'Slot machine',deal:'Card deal',rain:'Name rain',whirl:'Whirlpool',pop:'Pop'};
 
-const DEFAULT_LISTS=[
-  ['DRUTZ 8A','8A',['Abby','Ahaana','Anabia','Arun','Athena','Avery','Callen','Crystal','Eddie','Eden','Evan','Hadi','Kalai','Keerthan','Keerthana','Kenzie','Kopiga','Lauren','Maya','Melody','Nadeen','Parth','Prathika','Rayden','Rex','Shanlyn','Terrence','Theo','Winnie','Zoha']],
-  ['KIRKBY 8B','8B',['Abina','Addison','Akshara','Alice','Amelia','Andre','Aarush','Ben','Chase','Chloe','Clara','Damon','Danika','Deane','Evey','Haley','Haneeshga','Harshini','Isabella','Jenny','Kai','Kishaani','Liam','Luca','Rilan','Samara','Sid','Talia','Victor']]
-];
+/* no class lists are built in: each teacher adds their own, saved in their browser */
+const DEFAULT_LISTS=[];
 
 const defaultSettings=()=>({mode:'size',size:3,count:8,leftover:'smaller',titleStyle:'boards',titleList:'',avoidRepeats:true,marker:false});
 function newClass(name){return {id:uid(),name:name||'My class',students:[],rules:[],custom:[],settings:defaultSettings(),rounds:[],sources:null}}
-/* adds DRUTZ 8A, KIRKBY 8B and All Grade 8, reusing any class that already has that name */
+/* adds any built-in class lists (none right now), reusing a class that already has that name */
 function seed(s){
   s.classes=s.classes.filter(k=>!k.sample);
   const findName=n=>s.classes.find(k=>k.name.trim().toLowerCase()===n.toLowerCase());
@@ -433,8 +437,8 @@ function seed(s){
     if(!c.sources&&!c.students.length){c.name=name;c.students=names.map(n=>({id:uid(),name:n,absent:false}))}
     return c.id;
   });
-  if(!findName('All Grade 8')){const all=newClass('All Grade 8');all.sources=ids;s.classes.push(all)}
-  if(!s.classes.some(c=>c.id===s.currentId))s.currentId=ids[0];
+  if(ids.length&&!findName('All Grade 8')){const all=newClass('All Grade 8');all.sources=ids;s.classes.push(all)}
+  if(!s.classes.some(c=>c.id===s.currentId))s.currentId=ids[0]||(s.classes[0]&&s.classes[0].id);
   if(!s.seed)s.seed=2;s.lists=1;
   return s;
 }
@@ -443,7 +447,7 @@ function normalize(s){
   s.classes.forEach(c=>{
     c.rules=c.rules||[];c.custom=c.custom||[];c.sources=Array.isArray(c.sources)?c.sources:null;
     c.settings=Object.assign(defaultSettings(),c.settings||{});
-    if(c.settings.titleStyle!=='list')c.settings.titleStyle='boards';
+    if(!['boards','groups','list'].includes(c.settings.titleStyle))c.settings.titleStyle='boards';
     if((s.seed||0)<3)c.settings.leftover='smaller';
     if(!Array.isArray(c.rounds)){c.rounds=c.last&&c.last.groups?[{id:uid(),at:c.last.at||Date.now(),groups:c.last.groups}]:[]}
     delete c.last;delete c.history;
@@ -452,7 +456,7 @@ function normalize(s){
   if(!s.classes.some(c=>c.id===s.currentId))s.currentId=s.classes[0].id;
   s.seed=Math.max(s.seed||0,3);
   s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];
-  s.skin=s.skin||'auto';s.anim=s.anim||'full';s.pickNoRepeat=s.pickNoRepeat!==false;
+  s.skin=s.skin||'auto';if(s.anim==='off'){s.anim='full';s.animStyle='none'}s.anim=s.anim==='quick'?'quick':'full';s.animStyle=s.animStyle||'tumble';s.pickNoRepeat=s.pickNoRepeat!==false;
   return s;
 }
 function load(){
@@ -496,6 +500,7 @@ function checkDay(){
 /* ---------- planning & generating ---------- */
 const titleNames=st=>st.titleList.split(/[\r\n,.]+/).map(s=>s.trim()).filter(Boolean);
 function titleFor(i,st){
+  if(st.titleStyle==='groups')return 'Group '+(i+1);
   if(st.titleStyle==='list'){const l=titleNames(st);return l[i]||('Board '+(i+1))}
   return 'Board '+(i+1);
 }
@@ -672,6 +677,7 @@ function renderSettings(){
   <label class="lbl" for="titleStyle">Group names</label>
   <select id="titleStyle">
     <option value="boards"${st.titleStyle==='boards'?' selected':''}>Board 1, Board 2, …</option>
+    <option value="groups"${st.titleStyle==='groups'?' selected':''}>Group 1, Group 2, …</option>
     <option value="list"${st.titleStyle==='list'?' selected':''}>Custom names</option></select>
   ${st.titleStyle==='list'?`<div id="tset-bar">${tsetBar(st)}</div><textarea id="titleList" rows="4" placeholder="Primes, Squares, Cubes, Fractions">${esc(st.titleList)}</textarea><p class="note" id="title-count">${titleCountNote(st)}</p>`:''}
   <label class="check"><input type="checkbox" id="avoid"${st.avoidRepeats?' checked':''}> Try not to repeat partners from the last 3 rounds</label>
@@ -783,7 +789,10 @@ function blip(f,len,vol){if(!store.sound||!actx)return;try{const o=actx.createOs
 /* ---------- class view ---------- */
 function renderPresentCtrls(){
   const b=$('#sound-btn');b.textContent=store.sound?'Sound on':'Sound off';b.setAttribute('aria-pressed',String(!!store.sound));
-  $('#anim-btn').textContent=ANIMS[store.anim];
+  const sel=$('#anim-style');
+  sel.innerHTML=Object.keys(STYLES).map(k=>`<option value="${k}">${STYLES[k]}</option>`).join('')+'<option value="random">Surprise me</option><option value="none">No animation</option>';
+  sel.value=store.animStyle;
+  const ab=$('#anim-btn');ab.textContent=ANIMS[store.anim];ab.hidden=store.animStyle==='none';
 }
 function renderPresent(){
   const c=cls(),groups=liveGroups(c);
@@ -843,42 +852,93 @@ function fitPresent(){
     ps*=.95;
   }
 }
-/* names tumble in the middle of the screen, then fly one by one to their group */
+/* shuffle animations for the class view. Each style gives every name a path from somewhere to its seat. */
+const MOTION={
+  tumble({i,n,r,W,H,q,T}){
+    const mix=1500*q,step=q<1?Math.min(28,480/n):Math.max(40,Math.min(110,1900/n)),fly=q<1?380:600;
+    const pt=()=>`translate(${W*.12+Math.random()*Math.max(10,W*.76-r.width)}px,${H*.22+Math.random()*H*.5}px)`;
+    const leave=mix+i*step,total=leave+fly;
+    return {duration:total,delay:0,kf:[
+      {transform:`${pt()} rotate(${rnd(-25,25)}deg) scale(.5)`,opacity:0,offset:0},
+      {transform:`${pt()} rotate(${rnd(-14,14)}deg) scale(1)`,opacity:1,offset:mix*.3/total},
+      {transform:`${pt()} rotate(${rnd(-14,14)}deg) scale(1)`,opacity:1,offset:mix*.65/total},
+      {transform:`${pt()} rotate(${rnd(-8,8)}deg) scale(1.08)`,opacity:1,offset:leave/total},
+      {transform:`${T} rotate(0deg) scale(1)`,opacity:1,offset:1}]};
+  },
+  deal({i,n,r,W,H,q,T}){
+    const step=Math.max(25,Math.min(90,2000/n))*q,deck=`translate(${W/2-r.width/2}px,${H-30}px)`;
+    return {duration:q<1?380:560,delay:250*q+i*step,easing:'cubic-bezier(.2,.7,.3,1)',kf:[
+      {transform:`${deck} rotate(${rnd(-12,12)}deg) scale(.6)`,opacity:0},
+      {transform:`${deck} rotate(${rnd(-12,12)}deg) scale(.8)`,opacity:1,offset:.12},
+      {transform:`${T} rotate(${rnd(-6,6)}deg) scale(1.1)`,opacity:1,offset:.85},
+      {transform:`${T} rotate(0deg) scale(1)`,opacity:1}]};
+  },
+  rain({i,n,r,H,q,T}){
+    const step=Math.max(20,Math.min(70,1600/n))*q;
+    return {duration:q<1?560:900,delay:i*step,easing:'linear',kf:[
+      {transform:`translate(${r.left+rnd(-30,30)}px,${-80-rnd(0,H*.3)}px) rotate(${rnd(-20,20)}deg)`,opacity:1,easing:'cubic-bezier(.5,0,1,1)'},
+      {transform:`${T} rotate(0deg)`,opacity:1,offset:.7,easing:'ease-out'},
+      {transform:`translate(${r.left}px,${r.top-Math.min(30,r.height*.6)}px) rotate(0deg)`,opacity:1,offset:.85,easing:'ease-in'},
+      {transform:`${T} rotate(0deg)`,opacity:1}]};
+  },
+  whirl({i,n,r,W,H,q,T}){
+    const cx=W/2-r.width/2,cy=H/2-r.height/2,R=Math.min(W,H)*rnd(.16,.36),a0=i/n*Math.PI*2;
+    const spin=1600*q,step=Math.max(15,Math.min(60,1400/n))*q,leave=spin+i*step,total=leave+(q<1?380:560),tick=110;
+    const kf=[{transform:`translate(${cx}px,${cy}px) scale(.3)`,opacity:0,offset:0}];
+    for(let k=1;k*tick<leave;k++){const a=a0+k*.6,rad=R*Math.min(1,.35+k*.2);kf.push({transform:`translate(${cx+Math.cos(a)*rad*1.4}px,${cy+Math.sin(a)*rad}px) scale(1)`,opacity:1,offset:k*tick/total})}
+    kf.push({transform:`${T} scale(1)`,opacity:1,offset:1});
+    return {duration:total,delay:0,easing:'linear',kf};
+  },
+  pop({i,n,q,T}){
+    const step=Math.max(25,Math.min(90,1800/n))*q;
+    return {duration:q<1?300:420,delay:200*q+i*step,easing:'ease-out',kf:[
+      {transform:`${T} scale(0)`,opacity:0},{transform:`${T} scale(1.35)`,opacity:1,offset:.6},{transform:`${T} scale(1)`,opacity:1}]};
+  }
+};
+let lastStyle=null;
+function pickStyle(){if(store.animStyle!=='random')return STYLES[store.animStyle]?store.animStyle:'tumble';return pickOne(Object.keys(STYLES).filter(k=>k!==lastStyle))}
+/* slot machine: names spin in place and stop one group at a time */
+function slotSpin(q,finish){
+  const pool=hereOf(cls()).map(s=>s.name),cards=[...$('#present-grid').querySelectorAll('.pcard')];
+  const step=Math.max(60,Math.min(220,2400/cards.length))*q,t0=performance.now();
+  let left=$('#present-grid').querySelectorAll('.pn').length;
+  cards.forEach((card,gi)=>[...card.querySelectorAll('.pn')].forEach((li,j)=>{
+    const el=li.querySelector('.pname'),fin=el.textContent,end=t0+700*q+gi*step+j*90*q,mk=li.querySelector('.mk');
+    li.classList.add('spinning');if(mk)mk.style.visibility='hidden';
+    const tick=()=>{if(performance.now()>=end){el.textContent=fin;li.classList.remove('spinning');li.classList.add('land');if(mk)mk.style.visibility='';blip(rnd(520,900),.09,.06);if(--left===0)finish();return}
+      el.textContent=pickOne(pool);setTimeout(tick,60)};
+    tick();
+  }));
+}
 function deal(done){
   const grid=$('#present-grid'),layer=$('#fly-layer');layer.innerHTML='';
   const lis=[...grid.querySelectorAll('.pn')];
-  if(reduced||store.anim==='off'||!lis.length||!Element.prototype.animate){done();return}
-  const quick=store.anim==='quick';
-  const W=innerWidth,H=innerHeight;
-  const mix=quick?420:1500,step=quick?Math.min(28,480/lis.length):Math.max(40,Math.min(110,1900/lis.length)),fly=quick?380:600;
-  const sub=$('#present-sub'),subFinal=sub.textContent;sub.textContent='Shuffling…';
-  lis.forEach(l=>l.style.opacity=0);
+  if(reduced||store.animStyle==='none'||!lis.length||!Element.prototype.animate){done();return}
+  const style=pickStyle();lastStyle=style;
+  const q=store.anim==='quick'?.45:1,n=lis.length,W=innerWidth,H=innerHeight;
+  const sub=$('#present-sub'),subFinal=sub.textContent;sub.textContent=store.animStyle==='random'?`Shuffling… (${STYLES[style]})`:'Shuffling…';
   let tickTimer=null;
-  if(store.sound){let k=0;tickTimer=setInterval(()=>{blip(rnd(180,320),.05,.04);if(++k>mix/90)clearInterval(tickTimer)},90)}
-  const order=shuffle(lis.slice());
+  const finish=()=>{sub.textContent=subFinal;if(tickTimer)clearInterval(tickTimer);done()};
+  if(store.sound){let k=0;tickTimer=setInterval(()=>{blip(rnd(180,320),.05,.04);if(++k>16*q)clearInterval(tickTimer)},90)}
+  if(style==='slot'){slotSpin(q,finish);return}
+  lis.forEach(l=>l.style.opacity=0);
+  let order;
+  if(style==='deal'){const cards=[...grid.querySelectorAll('.pcard')].map(c=>[...c.querySelectorAll('.pn')]);order=[];
+    for(let j=0;j<Math.max(...cards.map(c=>c.length));j++)cards.forEach(c=>{if(c[j])order.push(c[j])})}
+  else order=shuffle(lis.slice());
   let landed=0;
   order.forEach((li,i)=>{
-    const nameEl=li.querySelector('.pname');const r=nameEl.getBoundingClientRect();
+    const nameEl=li.querySelector('.pname'),r=nameEl.getBoundingClientRect();
     const el=document.createElement('span');el.className='fly';el.textContent=nameEl.textContent;el.style.fontSize=getComputedStyle(li).fontSize;
     layer.appendChild(el);
-    const pt=()=>({x:W*.12+Math.random()*Math.max(10,W*.76-r.width),y:H*.22+Math.random()*H*.5});
-    const a=pt(),b=pt(),c2=pt(),d=pt();
-    const leave=mix+i*step,total=leave+fly;
-    const kf=[
-      {transform:`translate(${a.x}px,${a.y}px) rotate(${rnd(-25,25)}deg) scale(.5)`,opacity:0,offset:0},
-      {transform:`translate(${b.x}px,${b.y}px) rotate(${rnd(-14,14)}deg) scale(1)`,opacity:1,offset:mix*.3/total},
-      {transform:`translate(${c2.x}px,${c2.y}px) rotate(${rnd(-14,14)}deg) scale(1)`,opacity:1,offset:mix*.65/total},
-      {transform:`translate(${d.x}px,${d.y}px) rotate(${rnd(-8,8)}deg) scale(1.08)`,opacity:1,offset:leave/total},
-      {transform:`translate(${r.left}px,${r.top}px) rotate(0deg) scale(1)`,opacity:1,offset:1}
-    ];
-    const anim=el.animate(kf,{duration:total,easing:'ease-in-out',fill:'forwards'});
-    anim.onfinish=()=>{li.style.opacity='';li.classList.add('land');el.remove();blip(rnd(520,900),.09,.06);
-      if(++landed===order.length){sub.textContent=subFinal;if(tickTimer)clearInterval(tickTimer);done()}};
+    const m=MOTION[style]({i,n,r,W,H,q,T:`translate(${r.left}px,${r.top}px)`});
+    const anim=el.animate(m.kf,{duration:m.duration,delay:m.delay||0,easing:m.easing||'ease-in-out',fill:'both'});
+    anim.onfinish=()=>{li.style.opacity='';li.classList.add('land');el.remove();blip(rnd(520,900),.09,.06);if(++landed===order.length)finish()};
   });
 }
 /* a short, silent flicker on the teacher board */
 function flickerBoard(){
-  if(reduced||store.anim==='off')return;
+  if(reduced||store.animStyle==='none')return;
   const pool=hereOf(cls()).map(s=>s.name);if(!pool.length)return;
   document.querySelectorAll('#board .mem').forEach(btn=>{
     const el=btn.querySelector('.mn');const fin=el.textContent;const end=performance.now()+250+Math.random()*400;
@@ -944,7 +1004,7 @@ function pickRun(){
     detail=note+(store.pickNoRepeat?`${left} still to pick today`:'');
   }
   const nameEl=$('#pick-name'),detEl=$('#pick-detail');
-  const dur=(reduced||store.anim==='off')?0:store.anim==='quick'?650:1500;
+  const dur=(reduced||store.animStyle==='none')?0:store.anim==='quick'?650:1500;
   detEl.textContent='';nameEl.classList.remove('land');
   if(!dur){nameEl.textContent=final;detEl.textContent=detail;return}
   ui.picking=true;$('#pick-run').disabled=true;nameEl.classList.add('spinning');
@@ -1029,7 +1089,7 @@ const acts={
     deal(()=>{ui.dealing=false;$('#shuffle-btn').disabled=false;showQuote(true)});
   },
   'sound'(){store.sound=!store.sound;save();renderPresentCtrls();audioOn();blip(660,.08,.05)},
-  'anim'(){const k=Object.keys(ANIMS);store.anim=k[(k.indexOf(store.anim)+1)%k.length];save();renderPresentCtrls()},
+  'anim'(){store.anim=store.anim==='quick'?'full':'quick';save();renderPresentCtrls()},
   'skin'(b){store.skin=b.dataset.v;save();applySkin();renderSkins()},
   'timer-panel'(){const p=$('#timer-panel');p.hidden=!p.hidden;T.shown=true;renderTimer();if(!ui.dealing)fitPresent()},
   'timer-set'(b){T.total=T.remaining=(+b.dataset.m)*60000;T.done=false;T.shown=true;timerStart()},
@@ -1125,6 +1185,7 @@ document.addEventListener('change',e=>{
   if(t.id==='classpick'){store.currentId=t.value;ui.sel=null;ui.editRoster=false;ui.editSources=false;ui.draft.ids=[];ui.draft.who='';ui.confirmDel=false;ui.histStudent='';save();renderAll();return}
   if(t.id==='draft-who'){ui.draft.who=t.value;ui.draft.ids=ui.draft.ids.filter(id=>id!==t.value);renderRules();return}
   if(t.id==='titleSet'){const set=store.titleSets.find(x=>x.id===t.value);if(set){c.settings.titleList=set.text;c.settings.titleSetId=set.id}else c.settings.titleSetId=null;ui.tsetDel=false;save();renderSettings();return}
+  if(t.id==='anim-style'){store.animStyle=t.value;save();renderPresentCtrls();return}
   if(t.id==='leftover'){c.settings.leftover=t.value;save();renderSettings();return}
   if(t.id==='titleStyle'){c.settings.titleStyle=t.value;save();renderSettings();return}
   if(t.id==='avoid'){c.settings.avoidRepeats=t.checked;save();return}
@@ -1152,7 +1213,9 @@ window.addEventListener('resize',refit);document.addEventListener('fullscreencha
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(refit);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&checkDay())renderAll()});
 
-checkDay();applySkin();showQuote(false);renderAll();
+checkDay();applySkin();showQuote(false);
+if(!cls().sources&&!cls().students.length)ui.editRoster=true;
+renderAll();
 })();
 </script>
 </body>
