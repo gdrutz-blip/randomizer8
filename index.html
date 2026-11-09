@@ -286,6 +286,7 @@ details.backup[open] summary{margin-bottom:10px}
       <p class="note">Put specific students in a group of their own size. Leave size blank to match the other groups and fill the rest at random.</p>
       <div id="custom" class="stack"></div>
     </div>
+    <div class="tray"><h2>Display</h2><div id="display" class="stack"></div></div>
     <div class="tray">
       <details class="backup">
         <summary>Save &amp; restore</summary>
@@ -406,8 +407,9 @@ const QUOTES=[["Chance is always powerful. Let your hook be always cast; in the 
 let quoteAt=-1;
 /* a shuffled "bag": every quote and fact shows once before any repeats */
 function nextQuote(){
-  let bag=(store.quoteBag||[]).filter(i=>Number.isInteger(i)&&i>=0&&i<QUOTES.length);
-  if(!bag.length){bag=shuffle(QUOTES.map((_,i)=>i));if(bag.length>1&&bag[bag.length-1]===quoteAt)bag.unshift(bag.pop())}
+  const ok=i=>Number.isInteger(i)&&i>=0&&i<QUOTES.length&&(store.quoteFacts||QUOTES[i][1]);
+  let bag=(store.quoteBag||[]).filter(ok);
+  if(!bag.length){bag=shuffle(QUOTES.map((_,i)=>i).filter(ok));if(bag.length>1&&bag[bag.length-1]===quoteAt)bag.unshift(bag.pop())}
   const i=bag.pop();store.quoteBag=bag;save();return i;
 }
 function showQuote(animate){
@@ -456,6 +458,7 @@ function normalize(s){
   if(!s.classes.some(c=>c.id===s.currentId))s.currentId=s.classes[0].id;
   s.seed=Math.max(s.seed||0,3);
   s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];
+  s.showQuotes=s.showQuotes!==false;s.showQuotesClass=s.showQuotesClass!==false;s.quoteFacts=s.quoteFacts!==false;
   s.skin=s.skin||'auto';if(s.anim==='off'){s.anim='full';s.animStyle='none'}s.anim=s.anim==='quick'?'quick':'full';s.animStyle=s.animStyle||'tumble';s.pickNoRepeat=s.pickNoRepeat!==false;
   return s;
 }
@@ -778,7 +781,18 @@ function renderHistory(){
     <div class="row">${i||c.cleared?`<button class="btn small" data-act="round-use" data-id="${r.id}">Use these groups again</button>`:''}<button class="btn ghost small${ui.confirmRound===r.id?' danger':''}" data-act="round-del" data-id="${r.id}">${ui.confirmRound===r.id?'Tap again to delete':'Delete'}</button></div></details>`).join('')}</div>
   <p class="note">Shuffling again within 2 minutes replaces the last round, so quick re-dos don’t fill up the history.</p>`;
 }
-function renderSetup(){renderSkins();renderClassBar();renderStudents();renderSettings();renderRules();renderCustom()}
+/* display options are per browser, so each teacher sets their own */
+function renderDisplay(){
+  $('#display').innerHTML=`<label class="check"><input type="checkbox" id="disp-quotes"${store.showQuotes?' checked':''}> Show a quote at the top of the page</label>
+  <label class="check"><input type="checkbox" id="disp-quotes-class"${store.showQuotesClass?' checked':''}> Show a quote in Class view</label>
+  <label class="check"><input type="checkbox" id="disp-facts"${store.quoteFacts?' checked':''}${store.showQuotes||store.showQuotesClass?'':' disabled'}> Include random facts about chance and probability</label>`;
+}
+function applyDisplay(){
+  document.querySelector('.quote').hidden=!store.showQuotes;
+  $('#present-quote').hidden=!store.showQuotesClass;
+  if(!$('#present').hidden&&!ui.dealing)fitPresent();
+}
+function renderSetup(){renderDisplay();renderSkins();renderClassBar();renderStudents();renderSettings();renderRules();renderCustom()}
 function renderAll(){renderSetup();renderResults();renderHistory()}
 
 /* ---------- sound (off unless turned on) ---------- */
@@ -1172,7 +1186,7 @@ const acts={
   'backup-copy'(b){copyText(JSON.stringify(store),b)},
   'backup-restore'(){
     const st=$('#backup-status');
-    try{const s=JSON.parse($('#restore').value);if(!valid(s)||!s.classes.length)throw 0;s.seed=s.seed||2;store=normalize(s);checkDay();applySkin();save();ui.sel=null;ui.draft.ids=[];renderAll();
+    try{const s=JSON.parse($('#restore').value);if(!valid(s)||!s.classes.length)throw 0;s.seed=s.seed||2;store=normalize(s);checkDay();applySkin();applyDisplay();save();ui.sel=null;ui.draft.ids=[];renderAll();
       st.className='status good';st.textContent=`Restored ${store.classes.length} class${store.classes.length===1?'':'es'}.`;$('#restore').value=''}
     catch(e){st.className='status bad';st.textContent='That text isn’t a Randomizer backup. Paste the whole backup, from the first { to the last }.'}
   }
@@ -1186,6 +1200,8 @@ document.addEventListener('change',e=>{
   if(t.id==='draft-who'){ui.draft.who=t.value;ui.draft.ids=ui.draft.ids.filter(id=>id!==t.value);renderRules();return}
   if(t.id==='titleSet'){const set=store.titleSets.find(x=>x.id===t.value);if(set){c.settings.titleList=set.text;c.settings.titleSetId=set.id}else c.settings.titleSetId=null;ui.tsetDel=false;save();renderSettings();return}
   if(t.id==='anim-style'){store.animStyle=t.value;save();renderPresentCtrls();return}
+  if(t.id==='disp-quotes'||t.id==='disp-quotes-class'){store[t.id==='disp-quotes'?'showQuotes':'showQuotesClass']=t.checked;save();applyDisplay();renderDisplay();return}
+  if(t.id==='disp-facts'){store.quoteFacts=t.checked;store.quoteBag=[];save();if(!t.checked&&!QUOTES[quoteAt][1])showQuote(true);return}
   if(t.id==='leftover'){c.settings.leftover=t.value;save();renderSettings();return}
   if(t.id==='titleStyle'){c.settings.titleStyle=t.value;save();renderSettings();return}
   if(t.id==='avoid'){c.settings.avoidRepeats=t.checked;save();return}
@@ -1213,7 +1229,7 @@ window.addEventListener('resize',refit);document.addEventListener('fullscreencha
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(refit);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&checkDay())renderAll()});
 
-checkDay();applySkin();showQuote(false);
+checkDay();applySkin();applyDisplay();showQuote(false);
 if(!cls().sources&&!cls().students.length)ui.editRoster=true;
 renderAll();
 })();
