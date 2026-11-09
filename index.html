@@ -195,6 +195,26 @@ details.backup[open] summary{margin-bottom:10px}
 .mk{width:1em;height:1em;color:var(--m);flex:none}
 .mem.sel .mk{color:inherit}
 .moveto{align-self:flex-start;border-style:dashed}
+span.mem{cursor:default}
+span.mem:hover{background:transparent}
+.ebar{display:flex;flex-direction:column;gap:8px;background:var(--accent-soft);border:2px dashed var(--accent);border-radius:12px;padding:10px 14px}
+.ebar-main{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.ebar-h{font-weight:700;color:var(--accent)}
+.ebar-hint{flex:1 1 220px;font-size:15px}
+.ebar-out{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ebar-out .lbl2{margin-right:4px}
+.ochip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:14px;font-weight:700}
+.ochip.abs{color:var(--muted);text-decoration:line-through;font-weight:400}
+.ochip.sel{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);text-decoration:none}
+.ebar-warn{margin:0;color:var(--warn);font-weight:700;font-size:14px}
+#edit-bar-p .ebar-hint,#edit-bar-p .ebar-warn{font-size:clamp(15px,1.4vw,20px)}
+#edit-bar-p .ochip{font-size:clamp(14px,1.3vw,18px)}
+.pcard.editing{cursor:pointer;border-style:dashed;border-color:var(--accent)}
+.pn-btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:.3em;border-radius:8px;padding:0 .25em;margin-left:-.25em}
+.pn-btn:hover{background:var(--surface-2)}
+.pn-btn.sel{background:var(--accent);color:var(--accent-ink)}
+.pn-btn:focus-visible{outline:3px solid var(--accent)}
+.pn-empty{color:var(--muted);font-style:italic;font-weight:400}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:40px 20px;text-align:center;color:var(--muted)}
 .empty-h{font-family:var(--font-display);font-size:26px;color:var(--ink);margin:0 0 4px}
 .empty p{margin:0}
@@ -308,11 +328,13 @@ details.backup[open] summary{margin-bottom:10px}
       <p class="meta" id="board-meta"></p>
       <div class="row">
         <button class="btn" data-act="clear" id="clear-btn">Clear groups</button>
+        <button class="btn" data-act="edit-toggle" id="edit-btn">Edit groups</button>
         <button class="btn" data-act="copy" id="copy-btn">Copy</button>
         <button class="btn" data-act="generate">Make groups</button>
         <button class="btn primary big" data-act="present">Class view</button>
       </div>
     </div>
+    <div class="ebar" id="edit-bar-t" hidden></div>
     <div class="issues" id="issues"></div>
     <div class="board" id="board"></div>
     <p class="note" id="swap-hint"></p>
@@ -336,6 +358,7 @@ details.backup[open] summary{margin-bottom:10px}
       <button class="btn tool" data-act="pick-open">Pick a student</button>
       <button class="btn tool" data-act="timer-panel">Timer</button>
       <div class="small-ctrl">
+        <button class="btn ghost small" data-act="edit-toggle" id="edit-btn-p">Edit groups</button>
         <button class="btn ghost small" data-act="clear" id="clear-btn-p">Clear groups</button>
         <label class="sr" for="anim-style">Animation</label>
         <select id="anim-style" class="anim-select" title="Shuffle animation. Surprise me picks a different one each time."></select>
@@ -346,6 +369,7 @@ details.backup[open] summary{margin-bottom:10px}
     </div>
   </div>
   <p class="present-quote" id="present-quote" aria-live="polite"></p>
+  <div class="ebar" id="edit-bar-p" hidden></div>
   <div class="timer-panel" id="timer-panel" hidden>
     <span class="lbl2">Set</span>
     <button class="btn small" data-act="timer-set" data-m="1">1 min</button>
@@ -617,6 +641,7 @@ function check(c,groups){
       issues.push(`${ids.map(id=>'<b>'+nm(id)+'</b>').join(', ')} should be together but are split up.`);
     }
   });
+  groups.forEach(g=>{if(g.ids.length===1){const cg=g.customId&&c.custom.find(x=>x.id===g.customId);if(!(cg&&cg.size===1))issues.push(`<b>${nm(g.ids[0])}</b> is on their own in ${esc(g.title)}.`)}});
   c.custom.forEach(cg=>{
     const gi=groups.findIndex(g=>g.customId===cg.id);if(gi<0)return;
     cg.ids.forEach(id=>{if(where[id]!==undefined&&where[id]!==gi)issues.push(`<b>${nm(id)}</b> is set to be in ${esc(groups[gi].title)} but was moved out.`)});
@@ -705,9 +730,22 @@ function picker(ids,scope,label,exclude){
   <select class="pick-add" data-scope="${scope}" aria-label="${label}"><option value="">+ Add a student</option>${avail.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>`;
 }
 function draftReady(){const d=ui.draft;return d.type==='min3'?d.ids.length>=1:d.type==='oneof'?!!(d.who&&d.ids.filter(id=>id!==d.who).length):d.ids.length>=2}
+/* rules that contradict each other, so the teacher hears about it before shuffling */
+function ruleConflicts(c){
+  const rules=rulesOf(c),parent={},nm=id=>esc(nameOf(id)),out=[];
+  const find=x=>{while(parent[x]!==undefined&&parent[x]!==x)x=parent[x];return x};
+  rules.filter(r=>r.type==='together').forEach(r=>{for(let i=1;i<r.ids.length;i++){const a=find(r.ids[0]),b=find(r.ids[i]);if(a!==b)parent[b]=a}});
+  rules.filter(r=>r.type==='apart').forEach(r=>{for(let i=0;i<r.ids.length;i++)for(let j=i+1;j<r.ids.length;j++)
+    if(find(r.ids[i])===find(r.ids[j]))out.push(`<b>${nm(r.ids[i])}</b> and <b>${nm(r.ids[j])}</b> have to be kept together and kept apart.`)});
+  rules.filter(r=>r.type==='oneof').forEach(r=>{
+    const apart=new Set(rules.filter(x=>x.type==='apart'&&x.ids.includes(r.who)).flatMap(x=>x.ids));
+    if(r.ids.length&&r.ids.every(o=>apart.has(o)))out.push(`<b>${nm(r.who)}</b> has to be with ${r.ids.map(id=>'<b>'+nm(id)+'</b>').join(' or ')}, but is kept apart from ${r.ids.length>1?'all of them':'them'}.`);
+  });
+  return [...new Set(out)];
+}
 function renderRules(){
-  const c=cls(),d=ui.draft,el=$('#rules');const rules=rulesOf(c);
-  el.innerHTML=`<div class="rules">${rules.map(r=>`<div class="rule"><span class="tag ${r.type}">${r.type==='apart'?'Apart':r.type==='oneof'?'One of':r.type==='min3'?'3 or more':'Together'}</span><span class="names">${r.type==='oneof'?`<b>${esc(nameOf(r.who))}</b> with ${r.ids.map(id=>esc(nameOf(id))).join(' or ')}`:r.ids.map(id=>esc(nameOf(id))).join(', ')+(r.type==='min3'?' <span class="from">always in a group of 3+</span>':'')}</span>${r.from?`<span class="from">from ${esc(r.from)}</span>`:`<button class="btn ghost small" data-act="rule-del" data-id="${r.id}">Remove</button>`}</div>`).join('')||'<p class="note">No rules yet.</p>'}</div>
+  const c=cls(),d=ui.draft,el=$('#rules');const rules=rulesOf(c);const clash=ruleConflicts(c);
+  el.innerHTML=`${clash.map(t=>`<p class="issue">These rules can’t both be met: ${t} The Randomizer will get as close as it can and show a warning after each shuffle.</p>`).join('')}<div class="rules">${rules.map(r=>`<div class="rule"><span class="tag ${r.type}">${r.type==='apart'?'Apart':r.type==='oneof'?'One of':r.type==='min3'?'3 or more':'Together'}</span><span class="names">${r.type==='oneof'?`<b>${esc(nameOf(r.who))}</b> with ${r.ids.map(id=>esc(nameOf(id))).join(' or ')}`:r.ids.map(id=>esc(nameOf(id))).join(', ')+(r.type==='min3'?' <span class="from">always in a group of 3+</span>':'')}</span>${r.from?`<span class="from">from ${esc(r.from)}</span>`:`<button class="btn ghost small" data-act="rule-del" data-id="${r.id}">Remove</button>`}</div>`).join('')||'<p class="note">No rules yet.</p>'}</div>
   <div class="draft">
     <div class="seg seg4" role="radiogroup" aria-label="Rule type">
       <button role="radio" aria-checked="${d.type==='apart'}" data-act="draft-type" data-v="apart">Keep apart</button>
@@ -740,6 +778,9 @@ const fmtWhen=d=>`${d.toLocaleDateString(undefined,{weekday:'short',month:'short
 function renderResults(){
   const c=cls(),groups=liveGroups(c),el=$('#board');
   const has=!!(groups&&groups.length);$('#clear-btn').disabled=!has;$('#clear-btn-p').disabled=!has;
+  if(!has)ui.edit=false;
+  ['#edit-btn','#edit-btn-p'].forEach(k=>{const b=$(k);b.disabled=!has;b.textContent=ui.edit?'Done editing':'Edit groups';b.classList.toggle('primary',ui.edit&&k==='#edit-btn')});
+  const bar=$('#edit-bar-t');bar.hidden=!ui.edit;bar.innerHTML=ui.edit?editBarHTML():'';
   const issuesEl=$('#issues');$('#copy-fallback').innerHTML='';
   if(!groups||!groups.length){
     const here=hereOf(c).length;
@@ -747,16 +788,31 @@ function renderResults(){
     issuesEl.innerHTML='';$('#keep-row').innerHTML='';$('#board-meta').innerHTML=`<b>${esc(c.name)}</b>`;$('#swap-hint').textContent='';return;
   }
   $('#board-meta').innerHTML=`<b>${esc(c.name)}</b> · ${groups.length} groups · made ${fmtWhen(new Date(cur(c).at))}`;
-  const sel=ui.sel;
+  const sel=ui.edit?ui.sel:null,selIn=sel?whereIs(groups,sel):-1;
   el.innerHTML=groups.map((g,gi)=>`<article class="card" style="--m:var(--m${gi%6+1})"><header>
     <input type="text" class="gtitle" id="gt-${gi}" data-gi="${gi}" value="${esc(g.title)}" aria-label="Group name"><span class="cnt">${g.ids.length}</span></header>
-    <ul>${g.ids.map(id=>`<li><button class="mem${sel&&sel.id===id?' sel':''}" data-act="mem" data-gi="${gi}" data-id="${id}"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</button></li>`).join('')}</ul>
-    ${sel&&sel.gi!==gi?`<button class="btn small moveto" data-act="move" data-gi="${gi}">Move ${esc(nameOf(sel.id))} here</button>`:''}</article>`).join('');
+    <ul>${g.ids.map(id=>ui.edit?`<li><button class="mem${sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</button></li>`:`<li><span class="mem"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</span></li>`).join('')||'<li class="note" style="padding:5px 8px">Empty</li>'}</ul>
+    ${sel&&selIn!==gi?`<button class="btn small moveto" data-act="ed-move" data-gi="${gi}">${selIn<0?'Put':'Move'} ${esc(nameOf(sel))} here</button>`:''}</article>`).join('');
   const issues=check(c,groups);
   issuesEl.innerHTML=issues.length?issues.map(t=>`<p class="issue">${t}</p>`).join(''):(rulesOf(c).length||c.custom.length?'<p class="allgood">Every rule is met.</p>':'');
   $('#keep-row').innerHTML=`<button class="btn small" data-act="keep-titles">Keep these group names</button><span class="note">Renamed a group above? This uses the same names next time you shuffle.</span>`;
-  $('#swap-hint').innerHTML=sel?`${esc(nameOf(sel.id))} is selected. Tap another name to swap, or use “Move here” on a group.`:`Tap two names to swap them between groups. Tap a group name to rename it.${c.settings.marker?' The marker icon shows who writes first.':''}`;
+  $('#swap-hint').innerHTML=ui.edit?'':`Need to change something? Click <b>Edit groups</b> to swap students, move them, or take someone out. Click a group name to rename it.${c.settings.marker?' The marker icon shows who writes first.':''}`;
 }
+/* ---------- editing groups after a shuffle ---------- */
+const whereIs=(groups,id)=>groups.findIndex(g=>g.ids.includes(id));
+function editBarHTML(){
+  const c=cls(),groups=liveGroups(c)||[],sel=ui.sel,selName=sel?esc(nameOf(sel)):'',selIn=sel?whereIs(groups,sel):-1;
+  const inG=new Set(groups.flatMap(g=>g.ids));
+  const out=studentsOf(c).filter(s=>!inG.has(s.id)).sort((a,b)=>(a.absent?1:0)-(b.absent?1:0));
+  const solo=groups.filter(g=>g.ids.length===1).map(g=>esc(g.title));
+  const hint=!sel?'Tap a student to pick them.':selIn<0?`Tap a group to put <b>${selName}</b> in it.`:`Tap another student to swap with <b>${selName}</b>, or tap a group to move them there.`;
+  return `<div class="ebar-main"><span class="ebar-h">Editing groups</span><span class="ebar-hint">${hint}</span>
+    <div class="row">${sel&&selIn>=0?`<button class="btn small" data-act="ed-remove">Take ${selName} out</button>`:''}${sel?'<button class="btn small ghost" data-act="ed-cancel">Cancel</button>':''}<button class="btn primary small" data-act="edit-toggle">Done</button></div></div>
+    ${out.length?`<div class="ebar-out"><span class="lbl2">Not in a group</span>${out.map(s=>`<button class="ochip${s.absent?' abs':''}${sel===s.id?' sel':''}" data-act="ed-pick" data-id="${s.id}" title="${s.absent?'Marked absent. Put them in a group to mark them here.':''}">${esc(s.name)}</button>`).join('')}</div>`:''}
+    ${solo.length?`<p class="ebar-warn">${solo.join(', ')} ${solo.length===1?'has':'have'} only 1 student.</p>`:''}`;
+}
+function renderEdit(){renderResults();renderHistory();renderStudents();renderSettings();if(!$('#present').hidden)renderPresent()}
+function markHere(id){const s=studentsOf(cls()).find(x=>x.id===id);if(s&&s.absent){s.absent=false;store.absentDay=today()}}
 function renderHistory(){
   const c=cls(),el=$('#history'),rs=c.rounds;
   $('#hist-count').textContent=rs.length?`${rs.length} round${rs.length===1?'':'s'} saved`:'';
@@ -809,6 +865,7 @@ function renderPresentCtrls(){
 }
 function renderPresent(){
   const c=cls(),groups=liveGroups(c);
+  const pbar=$('#edit-bar-p');pbar.hidden=!ui.edit;pbar.innerHTML=ui.edit?editBarHTML():'';
   $('#present-h').textContent=c.name;
   const here=hereOf(c);
   const grid=$('#present-grid');
@@ -819,8 +876,10 @@ function renderPresent(){
     fitPresent();return;
   }
   grid.style.display='';
-  $('#present-sub').textContent=c.settings.titleStyle==='boards'?'Find your board!':'Find your group!';
-  grid.innerHTML=groups.map((g,gi)=>`<section class="pcard" style="--m:var(--m${gi%6+1})"><h3>${esc(g.title)}</h3><ul>${g.ids.map(id=>`<li class="pn"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</li>`).join('')}</ul></section>`).join('');
+  const broken=check(c,groups).length;
+  $('#present-sub').textContent=(c.settings.titleStyle==='boards'?'Find your board!':'Find your group!')+(broken?` · ⚠ ${broken} rule${broken===1?'':'s'} not met (see teacher view)`:'');
+  const ed=ui.edit;
+  grid.innerHTML=groups.map((g,gi)=>`<section class="pcard${ed?' editing':''}" style="--m:var(--m${gi%6+1})"${ed?` data-act="ed-move" data-gi="${gi}"`:''}><h3>${esc(g.title)}</h3><ul>${g.ids.map(id=>ed?`<li class="pn"><button class="pn-btn${ui.sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</button></li>`:`<li class="pn"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</li>`).join('')||(ed?'<li class="pn pn-empty">Empty</li>':'')}</ul></section>`).join('');
   fitPresent();
 }
 /* sizes the class view so every group fits on one screen with the biggest text possible */
@@ -1040,7 +1099,7 @@ function doGenerate(){
   if(replace)c.rounds[0]=round;else c.rounds.unshift(round);
   c.cleared=false;
   c.rounds=c.rounds.slice(0,40);
-  ui.sel=null;ui.confirmRound=null;save();renderResults();renderHistory();
+  ui.sel=null;ui.edit=false;ui.confirmRound=null;save();renderResults();renderHistory();
   return true;
 }
 function pruneAll(){
@@ -1089,7 +1148,7 @@ const acts={
     c.settings.titleStyle='list';c.settings.titleList=groups.map(g=>g.title.replace(/[.,]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');c.settings.titleSetId=null;
     save();renderSettings();b.textContent='Kept';setTimeout(()=>{if(b.isConnected)b.textContent='Keep these group names'},1500);
   },
-  'clear'(){const c=cls();if(ui.dealing||!cur(c))return;c.cleared=true;ui.sel=null;save();renderResults();renderHistory();if(!$('#present').hidden)renderPresent()},
+  'clear'(){const c=cls();if(ui.dealing||!cur(c))return;c.cleared=true;ui.sel=null;ui.edit=false;save();renderResults();renderHistory();if(!$('#present').hidden)renderPresent()},
   'quote'(){showQuote(true)},
   'generate'(){if(doGenerate()){flickerBoard();showQuote(true)}},
   'generate-mobile'(){if(doGenerate()){flickerBoard();showQuote(true)}$('#results').scrollIntoView({behavior:reduced?'auto':'smooth'})},
@@ -1143,15 +1202,34 @@ const acts={
   'rule-del'(b){const c=cls();c.rules=c.rules.filter(r=>r.id!==b.dataset.id);save();renderRules();renderResults()},
   'custom-add'(){cls().custom.push({id:uid(),title:'',size:null,ids:[]});save();renderCustom();renderSettings()},
   'custom-del'(b){const c=cls();c.custom=c.custom.filter(g=>g.id!==b.dataset.id);save();renderCustom();renderSettings()},
-  'mem'(b){
-    const gi=+b.dataset.gi,id=b.dataset.id,s=ui.sel,groups=cur(cls()).groups;
-    if(!s)ui.sel={gi,id};
-    else if(s.id===id)ui.sel=null;
-    else if(s.gi===gi)ui.sel={gi,id};
-    else{const a=groups[s.gi].ids,bb=groups[gi].ids;a[a.indexOf(s.id)]=id;bb[bb.indexOf(id)]=s.id;ui.sel=null;save();renderHistory()}
-    renderResults();
+  'edit-toggle'(){
+    if(ui.dealing)return;const c=cls(),r=cur(c);
+    if(!ui.edit&&!(r&&r.groups.length))return;
+    ui.edit=!ui.edit;ui.sel=null;
+    if(!ui.edit&&r){r.groups=r.groups.filter(g=>g.ids.length||g.customId);save()}
+    renderEdit();
   },
-  'move'(b){const s=ui.sel,groups=cur(cls()).groups;if(!s)return;const from=groups[s.gi].ids;from.splice(from.indexOf(s.id),1);groups[+b.dataset.gi].ids.push(s.id);ui.sel=null;save();renderResults();renderHistory()},
+  'ed-cancel'(){ui.sel=null;renderEdit()},
+  'ed-pick'(b){
+    if(!ui.edit)return;const id=b.dataset.id,groups=cur(cls()).groups;
+    if(!ui.sel||ui.sel===id){ui.sel=ui.sel===id?null:id;return renderEdit()}
+    const a=whereIs(groups,ui.sel),t=whereIs(groups,id);
+    if(a>=0&&t>=0&&a!==t){const A=groups[a].ids,B=groups[t].ids;A[A.indexOf(ui.sel)]=id;B[B.indexOf(id)]=ui.sel}
+    else if(a<0&&t>=0){groups[t].ids.push(ui.sel);markHere(ui.sel)}
+    else{ui.sel=id;return renderEdit()}
+    ui.sel=null;save();renderEdit();
+  },
+  'ed-move'(b){
+    if(!ui.edit||!ui.sel)return;const gi=+b.dataset.gi,groups=cur(cls()).groups,a=whereIs(groups,ui.sel);
+    if(a!==gi){if(a>=0)groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);groups[gi].ids.push(ui.sel);markHere(ui.sel);save()}
+    ui.sel=null;renderEdit();
+  },
+  'ed-remove'(){
+    if(!ui.sel)return;const groups=cur(cls()).groups,a=whereIs(groups,ui.sel);if(a<0)return;
+    groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);if(groups[a].marker===ui.sel)delete groups[a].marker;
+    const s=studentsOf(cls()).find(x=>x.id===ui.sel);if(s){s.absent=true;store.absentDay=today()}
+    ui.sel=null;save();renderEdit();
+  },
   'round-use'(b){
     const c=cls(),r=c.rounds.find(r=>r.id===b.dataset.id);if(!r)return;
     c.rounds.unshift({id:uid(),at:Date.now()-120000,groups:JSON.parse(JSON.stringify(r.groups))});c.cleared=false;c.rounds=c.rounds.slice(0,40);
@@ -1195,7 +1273,7 @@ document.addEventListener('change',e=>{
   const t=e.target,c=cls();
   if(t.classList.contains('pick-add')){if(!t.value)return;const l=scopeList(t.dataset.scope);if(l&&!l.includes(t.value)){if(t.dataset.scope!=='draft')c.custom.forEach(g=>{const i=g.ids.indexOf(t.value);if(i>=0)g.ids.splice(i,1)});l.push(t.value)}save();renderRules();renderCustom();renderSettings();
     const again=document.querySelector(`.pick-add[data-scope="${t.dataset.scope}"]`);if(again)again.focus();return}
-  if(t.id==='classpick'){store.currentId=t.value;ui.sel=null;ui.editRoster=false;ui.editSources=false;ui.draft.ids=[];ui.draft.who='';ui.confirmDel=false;ui.histStudent='';save();renderAll();return}
+  if(t.id==='classpick'){store.currentId=t.value;ui.sel=null;ui.edit=false;ui.editRoster=false;ui.editSources=false;ui.draft.ids=[];ui.draft.who='';ui.confirmDel=false;ui.histStudent='';save();renderAll();return}
   if(t.id==='draft-who'){ui.draft.who=t.value;ui.draft.ids=ui.draft.ids.filter(id=>id!==t.value);renderRules();return}
   if(t.id==='titleSet'){const set=store.titleSets.find(x=>x.id===t.value);if(set){c.settings.titleList=set.text;c.settings.titleSetId=set.id}else c.settings.titleSetId=null;ui.tsetDel=false;save();renderSettings();return}
   if(t.id==='anim-style'){store.animStyle=t.value;save();renderPresentCtrls();return}
