@@ -196,6 +196,11 @@ details.backup[open] summary{margin-bottom:10px}
 .mem.sel .mk{color:inherit}
 .moveto{align-self:flex-start;border-style:dashed}
 span.mem{cursor:default}
+.role{font-family:var(--font-body);font-size:.55em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--m);border:1.5px solid currentColor;border-radius:999px;padding:.1em .55em;margin-left:.35em;white-space:nowrap;line-height:1.2}
+.mem .role{font-size:11px;margin-left:auto}
+.mem.sel .role{color:inherit}
+.pn-btn.sel .role{color:inherit}
+.roles-box{padding:10px 12px;border-radius:9px;background:var(--surface-2)}
 span.mem:hover{background:transparent}
 .ebar{display:flex;flex-direction:column;gap:8px;background:var(--accent-soft);border:2px dashed var(--accent);border-radius:12px;padding:10px 14px}
 .ebar-main{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
@@ -451,7 +456,7 @@ const STYLES={tumble:'Tumble',slot:'Slot machine',deal:'Card deal',rain:'Name ra
 /* no class lists are built in: each teacher adds their own, saved in their browser */
 const DEFAULT_LISTS=[];
 
-const defaultSettings=()=>({mode:'size',size:3,count:8,leftover:'smaller',titleStyle:'boards',titleList:'',avoidRepeats:true,marker:false});
+const defaultSettings=()=>({mode:'size',size:3,count:8,leftover:'smaller',titleStyle:'boards',titleList:'',avoidRepeats:true,marker:false,roles:false,roleList:'Scribe, Reporter, Timekeeper, Materials'});
 function newClass(name){return {id:uid(),name:name||'My class',students:[],rules:[],custom:[],settings:defaultSettings(),rounds:[],sources:null}}
 /* adds any built-in class lists (none right now), reusing a class that already has that name */
 function seed(s){
@@ -481,7 +486,7 @@ function normalize(s){
   if(!s.classes.length)s.classes.push(newClass('My class'));
   if(!s.classes.some(c=>c.id===s.currentId))s.currentId=s.classes[0].id;
   s.seed=Math.max(s.seed||0,3);
-  s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];
+  s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];s.roleSets=Array.isArray(s.roleSets)?s.roleSets:[];
   s.showQuotes=s.showQuotes!==false;s.showQuotesClass=s.showQuotesClass!==false;delete s.quoteFacts;
   s.skin=s.skin||'auto';if(s.anim==='off'){s.anim='full';s.animStyle='none'}s.anim=s.anim==='quick'?'quick':'full';s.animStyle=s.animStyle||'tumble';s.pickNoRepeat=s.pickNoRepeat!==false;
   return s;
@@ -497,7 +502,7 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(store))}catch(e){}}
 
 let store=normalize(load());save();
 const ui={editRoster:false,editSources:false,classMode:'view',confirmDel:false,draft:{type:'apart',ids:[],who:''},sel:null,dealing:false,
-  histStudent:'',openRounds:new Set(),tsetMode:null,tsetDel:false,confirmRound:null,pickMode:'student',picking:false};
+  histStudent:'',openRounds:new Set(),lsMode:null,lsDel:null,confirmRound:null,pickMode:'student',picking:false};
 const cls=()=>store.classes.find(c=>c.id===store.currentId);
 const byId=id=>store.classes.find(c=>c.id===id);
 const cur=c=>c.cleared?null:(c.rounds[0]||null);
@@ -525,6 +530,7 @@ function checkDay(){
 }
 
 /* ---------- planning & generating ---------- */
+const roleNames=st=>String(st.roleList||'').split(/[\r\n,.]+/).map(s=>s.trim()).filter(Boolean);
 const titleNames=st=>st.titleList.split(/[\r\n,.]+/).map(s=>s.trim()).filter(Boolean);
 function titleFor(i,st){
   if(st.titleStyle==='groups')return 'Group '+(i+1);
@@ -707,22 +713,32 @@ function renderSettings(){
     <option value="boards"${st.titleStyle==='boards'?' selected':''}>Board 1, Board 2, …</option>
     <option value="groups"${st.titleStyle==='groups'?' selected':''}>Group 1, Group 2, …</option>
     <option value="list"${st.titleStyle==='list'?' selected':''}>Custom names</option></select>
-  ${st.titleStyle==='list'?`<div id="tset-bar">${tsetBar(st)}</div><textarea id="titleList" rows="4" placeholder="Primes, Squares, Cubes, Fractions">${esc(st.titleList)}</textarea><p class="note" id="title-count">${titleCountNote(st)}</p>`:''}
+  ${st.titleStyle==='list'?`<div id="title-bar">${listBar('title',st)}</div><textarea id="titleList" rows="4" placeholder="Primes, Squares, Cubes, Fractions">${esc(st.titleList)}</textarea><p class="note" id="title-count">${titleCountNote(st)}</p>`:''}
   <label class="check"><input type="checkbox" id="avoid"${st.avoidRepeats?' checked':''}> Try not to repeat partners from the last 3 rounds</label>
-  <label class="check"><input type="checkbox" id="marker"${st.marker?' checked':''}> Pick who holds the marker first in each group</label>`;
+  <label class="check"><input type="checkbox" id="marker"${st.marker?' checked':''}> Pick who holds the marker first in each group</label>
+  <label class="check"><input type="checkbox" id="roles-on"${st.roles?' checked':''}> Give each student in a group a role</label>
+  ${st.roles?`<div class="stack roles-box"><div id="role-bar">${listBar('role',st)}</div>
+    <label class="sr" for="roleList">Roles</label><textarea id="roleList" rows="3" placeholder="Scribe, Reporter, Timekeeper, Materials">${esc(st.roleList)}</textarea>
+    <p class="note" id="role-count">${roleCountNote(st)}</p>
+    ${cur(c)&&cur(c).groups.length?'<div class="row"><button class="btn small" data-act="roles-now">Give roles to the groups on the board now</button></div>':''}</div>`:''}`;
 }
-/* saved name lists are shared by all classes */
-function tsetBar(st){
-  const sets=store.titleSets,curSet=sets.find(t=>t.id===st.titleSetId);
-  if(ui.tsetMode)return `<div class="row"><label class="sr" for="tset-name">List name</label><input type="text" id="tset-name" placeholder="Name this list, e.g. Math boards" value="${ui.tsetMode==='rename'&&curSet?esc(curSet.name):''}" style="flex:1 1 160px;width:auto"><button class="btn primary small" data-act="tset-ok">Save</button><button class="btn small" data-act="tset-cancel">Cancel</button></div>`;
-  const changed=curSet&&curSet.text!==st.titleList;
+/* saved lists (group names and roles) are shared by all classes */
+const LISTS={
+  title:{sets:'titleSets',id:'titleSetId',text:'titleList',names:st=>titleNames(st),label:'name lists',eg:'Math boards'},
+  role:{sets:'roleSets',id:'roleSetId',text:'roleList',names:st=>roleNames(st),label:'role lists',eg:'Science roles'}
+};
+function listBar(kind,st){
+  const L=LISTS[kind],sets=store[L.sets],curSet=sets.find(t=>t.id===st[L.id]);
+  if(ui.lsMode&&ui.lsMode.kind===kind)return `<div class="row"><label class="sr" for="${kind}-ls-name">List name</label><input type="text" class="ls-name" id="${kind}-ls-name" data-kind="${kind}" placeholder="Name this list, e.g. ${L.eg}" value="${ui.lsMode.mode==='rename'&&curSet?esc(curSet.name):''}" style="flex:1 1 160px;width:auto"><button class="btn primary small" data-act="ls-ok" data-kind="${kind}">Save</button><button class="btn small" data-act="ls-cancel" data-kind="${kind}">Cancel</button></div>`;
+  const changed=curSet&&curSet.text!==st[L.text];
   return `<div class="row">
-    ${sets.length?`<label class="sr" for="titleSet">Saved name lists</label><select id="titleSet" style="flex:1 1 150px;width:auto"><option value="">${curSet?'Not from a saved list':'Pick a saved list…'}</option>${sets.map(t=>`<option value="${t.id}"${t.id===st.titleSetId?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`:''}
-    ${changed?`<button class="btn small primary" data-act="tset-update">Save changes to “${esc(curSet.name)}”</button>`:''}
-    <button class="btn small" data-act="tset-new"${titleNames(st).length?'':' disabled'}>Save as a new list</button>
-    ${curSet?`<button class="btn small ghost" data-act="tset-rename">Rename</button><button class="btn small ghost${ui.tsetDel?' danger':''}" data-act="tset-del">${ui.tsetDel?'Tap again to delete':'Delete'}</button>`:''}
+    ${sets.length?`<label class="sr" for="${kind}Set">Saved ${L.label}</label><select class="ls-pick" id="${kind}Set" data-kind="${kind}" style="flex:1 1 150px;width:auto"><option value="">${curSet?'Not from a saved list':'Pick a saved list…'}</option>${sets.map(t=>`<option value="${t.id}"${t.id===st[L.id]?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`:''}
+    ${changed?`<button class="btn small primary" data-act="ls-update" data-kind="${kind}">Save changes to “${esc(curSet.name)}”</button>`:''}
+    <button class="btn small" data-act="ls-new" data-kind="${kind}"${L.names(st).length?'':' disabled'}>Save as a new list</button>
+    ${curSet?`<button class="btn small ghost" data-act="ls-rename" data-kind="${kind}">Rename</button><button class="btn small ghost${ui.lsDel===kind?' danger':''}" data-act="ls-del" data-kind="${kind}">${ui.lsDel===kind?'Tap again to delete':'Delete'}</button>`:''}
   </div>`;
 }
+function roleCountNote(st){const n=roleNames(st).length;return `${n?n+' role'+(n===1?'':'s')+'. ':''}Separate roles with commas, periods or new lines. List the most important role first: smaller groups use the first roles on the list, and extra students in bigger groups get no role.`}
 function titleCountNote(st){const n=titleNames(st).length;return `${n?n+' name'+(n===1?'':'s')+'. ':''}Separate names with commas, periods or new lines. Groups past the end of your list are numbered.`}
 function picker(ids,scope,label,exclude){
   const avail=studentsOf(cls()).filter(s=>!ids.includes(s.id)&&!(exclude&&exclude.has(s.id)));
@@ -791,7 +807,7 @@ function renderResults(){
   const sel=ui.edit?ui.sel:null,selIn=sel?whereIs(groups,sel):-1;
   el.innerHTML=groups.map((g,gi)=>`<article class="card" style="--m:var(--m${gi%6+1})"><header>
     <input type="text" class="gtitle" id="gt-${gi}" data-gi="${gi}" value="${esc(g.title)}" aria-label="Group name"><span class="cnt">${g.ids.length}</span></header>
-    <ul>${g.ids.map(id=>ui.edit?`<li><button class="mem${sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</button></li>`:`<li><span class="mem"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</span></li>`).join('')||'<li class="note" style="padding:5px 8px">Empty</li>'}</ul>
+    <ul>${g.ids.map(id=>ui.edit?`<li><button class="mem${sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</button></li>`:`<li><span class="mem"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</span></li>`).join('')||'<li class="note" style="padding:5px 8px">Empty</li>'}</ul>
     ${sel&&selIn!==gi?`<button class="btn small moveto" data-act="ed-move" data-gi="${gi}">${selIn<0?'Put':'Move'} ${esc(nameOf(sel))} here</button>`:''}</article>`).join('');
   const issues=check(c,groups);
   issuesEl.innerHTML=issues.length?issues.map(t=>`<p class="issue">${t}</p>`).join(''):(rulesOf(c).length||c.custom.length?'<p class="allgood">Every rule is met.</p>':'');
@@ -879,7 +895,7 @@ function renderPresent(){
   const broken=check(c,groups).length;
   $('#present-sub').textContent=(c.settings.titleStyle==='boards'?'Find your board!':'Find your group!')+(broken?` · ⚠ ${broken} rule${broken===1?'':'s'} not met (see teacher view)`:'');
   const ed=ui.edit;
-  grid.innerHTML=groups.map((g,gi)=>`<section class="pcard${ed?' editing':''}" style="--m:var(--m${gi%6+1})"${ed?` data-act="ed-move" data-gi="${gi}"`:''}><h3>${esc(g.title)}</h3><ul>${g.ids.map(id=>ed?`<li class="pn"><button class="pn-btn${ui.sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</button></li>`:`<li class="pn"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}</li>`).join('')||(ed?'<li class="pn pn-empty">Empty</li>':'')}</ul></section>`).join('');
+  grid.innerHTML=groups.map((g,gi)=>`<section class="pcard${ed?' editing':''}" style="--m:var(--m${gi%6+1})"${ed?` data-act="ed-move" data-gi="${gi}"`:''}><h3>${esc(g.title)}</h3><ul>${g.ids.map(id=>ed?`<li class="pn"><button class="pn-btn${ui.sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</button></li>`:`<li class="pn"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</li>`).join('')||(ed?'<li class="pn pn-empty">Empty</li>':'')}</ul></section>`).join('');
   fitPresent();
 }
 /* sizes the class view so every group fits on one screen with the biggest text possible */
@@ -901,7 +917,7 @@ function fitPresent(){
   const ctx=fitCanvas.getContext('2d');const h3=grid.querySelector('.pcard h3');
   const bodyF=getComputedStyle(grid).fontFamily,dispF=h3?getComputedStyle(h3).fontFamily:bodyF;
   ctx.font=`700 100px ${bodyF}`;let nameW=1;
-  groups.forEach(g=>g.ids.forEach(id=>{nameW=Math.max(nameW,ctx.measureText(nameOf(id)).width/100+(g.marker===id?1.35:0))}));
+  groups.forEach(g=>g.ids.forEach(id=>{const role=g.roles&&g.roles[id];nameW=Math.max(nameW,ctx.measureText(nameOf(id)).width/100+(g.marker===id?1.35:0)+(role?ctx.measureText(role.toUpperCase()).width/100*.62+1.1:0))}));
   ctx.font=`700 100px ${dispF}`;let titleW=1;groups.forEach(g=>{titleW=Math.max(titleW,ctx.measureText(g.title).width/100)});
   const n=groups.length,k=Math.max(1,...groups.map(g=>g.ids.length)),TR=1.15;
   let best=null;
@@ -1088,6 +1104,40 @@ function pickRun(){
 }
 
 /* ---------- actions ---------- */
+/* hands out roles in each group, steering students away from roles they had in recent rounds.
+   Groups are small, so every way of handing out the roles is tried and the fairest one wins. */
+function giveRoles(c,groups,recentRounds){
+  const names=roleNames(c.settings);
+  if(!c.settings.roles||!names.length){groups.forEach(g=>delete g.roles);return}
+  const had={};
+  recentRounds.forEach((r,ri)=>r.groups.forEach(g=>{if(g.roles)Object.entries(g.roles).forEach(([id,role])=>{const k=id+'|'+role;had[k]=(had[k]||0)+[9,3,1][ri]})}));
+  groups.forEach(g=>{
+    const roles=names.slice(0,g.ids.length),members=shuffle(g.ids.slice());
+    let best=Infinity,bestPick=null,tries=0;
+    const walk=(i,used,pick,cost)=>{
+      if(cost>=best||tries>5000)return;
+      if(i===roles.length){tries++;if(cost<best){best=cost;bestPick=pick.slice()}return}
+      for(const id of members){if(used.has(id))continue;used.add(id);pick.push(id);walk(i+1,used,pick,cost+(had[id+'|'+roles[i]]||0));pick.pop();used.delete(id)}
+    };
+    walk(0,new Set(),[],0);
+    g.roles={};(bestPick||[]).forEach((id,i)=>g.roles[id]=roles[i]);
+  });
+}
+/* after an edit, keep the most important roles filled: free top roles go first to anyone without a role,
+   then to whoever holds the least important role */
+function refillRoles(c,g){
+  if(!g.roles)return;
+  Object.keys(g.roles).forEach(id=>{if(!g.ids.includes(id))delete g.roles[id]});
+  const names=roleNames(c.settings),top=names.slice(0,g.ids.length);
+  const free=top.filter(r=>!Object.values(g.roles).includes(r));
+  g.ids.forEach(id=>{if(!g.roles[id]&&free.length)g.roles[id]=free.shift()});
+  const rank=r=>{const i=names.indexOf(r);return i<0?1e9:i};
+  while(free.length){
+    const low=Object.keys(g.roles).filter(id=>!top.includes(g.roles[id])).sort((a,b)=>rank(g.roles[b])-rank(g.roles[a]))[0];
+    if(!low)break;g.roles[low]=free.shift();
+  }
+}
+const roleTag=(g,id)=>g.roles&&g.roles[id]?`<span class="role">${esc(g.roles[id])}</span>`:'';
 function doGenerate(){
   if(checkDay())renderSetup();
   const c=cls();
@@ -1096,6 +1146,7 @@ function doGenerate(){
   const replace=!!(prev&&now-prev.at<120000);
   const history=c.rounds.slice(replace?1:0,(replace?1:0)+3).map(r=>r.groups.map(g=>g.ids));
   const round={id:uid(),at:now,groups:generate(c,history)};
+  giveRoles(c,round.groups,c.rounds.slice(replace?1:0,(replace?1:0)+3));
   if(replace)c.rounds[0]=round;else c.rounds.unshift(round);
   c.cleared=false;
   c.rounds=c.rounds.slice(0,40);
@@ -1122,27 +1173,28 @@ function copyText(text,btn){
 }
 function groupsText(){
   const c=cls(),groups=liveGroups(c);if(!groups)return '';
-  return groups.map(g=>`${g.title}: ${g.ids.map(id=>nameOf(id)+(g.marker===id?' (marker)':'')).join(', ')}`).join('\n');
+  return groups.map(g=>`${g.title}: ${g.ids.map(id=>nameOf(id)+(g.roles&&g.roles[id]?` (${g.roles[id]})`:'')+(g.marker===id?' (marker)':'')).join(', ')}`).join('\n');
 }
 function checkedSources(){return [...document.querySelectorAll('.srcbox:checked')].map(b=>b.value)}
 
 const acts={
-  'tset-new'(){ui.tsetMode='new';ui.tsetDel=false;renderSettings();setTimeout(()=>{const i=$('#tset-name');if(i)i.focus()})},
-  'tset-rename'(){ui.tsetMode='rename';ui.tsetDel=false;renderSettings();setTimeout(()=>{const i=$('#tset-name');if(i){i.focus();i.select()}})},
-  'tset-cancel'(){ui.tsetMode=null;renderSettings()},
-  'tset-ok'(){
-    const st=cls().settings,name=($('#tset-name').value||'').trim();if(!name){$('#tset-name').focus();return}
-    if(ui.tsetMode==='rename'){const set=store.titleSets.find(x=>x.id===st.titleSetId);if(set)set.name=name}
-    else{const set={id:uid(),name,text:st.titleList};store.titleSets.push(set);st.titleSetId=set.id}
-    ui.tsetMode=null;save();renderSettings();
+  'ls-new'(b){ui.lsMode={kind:b.dataset.kind,mode:'new'};ui.lsDel=null;renderSettings();setTimeout(()=>{const i=$(`#${b.dataset.kind}-ls-name`);if(i)i.focus()})},
+  'ls-rename'(b){ui.lsMode={kind:b.dataset.kind,mode:'rename'};ui.lsDel=null;renderSettings();setTimeout(()=>{const i=$(`#${b.dataset.kind}-ls-name`);if(i){i.focus();i.select()}})},
+  'ls-cancel'(){ui.lsMode=null;renderSettings()},
+  'ls-ok'(b){
+    const kind=b.dataset.kind,L=LISTS[kind],st=cls().settings,inp=$(`#${kind}-ls-name`),name=(inp.value||'').trim();if(!name){inp.focus();return}
+    if(ui.lsMode&&ui.lsMode.mode==='rename'){const set=store[L.sets].find(x=>x.id===st[L.id]);if(set)set.name=name}
+    else{const set={id:uid(),name,text:st[L.text]};store[L.sets].push(set);st[L.id]=set.id}
+    ui.lsMode=null;save();renderSettings();
   },
-  'tset-update'(){const st=cls().settings,set=store.titleSets.find(x=>x.id===st.titleSetId);if(set){set.text=st.titleList;save();renderSettings()}},
-  'tset-del'(){
-    const st=cls().settings;
-    if(!ui.tsetDel){ui.tsetDel=true;renderSettings();setTimeout(()=>{if(ui.tsetDel){ui.tsetDel=false;renderSettings()}},4000);return}
-    store.titleSets=store.titleSets.filter(x=>x.id!==st.titleSetId);store.classes.forEach(k=>{if(k.settings.titleSetId===st.titleSetId)k.settings.titleSetId=null});
-    ui.tsetDel=false;save();renderSettings();
+  'ls-update'(b){const L=LISTS[b.dataset.kind],st=cls().settings,set=store[L.sets].find(x=>x.id===st[L.id]);if(set){set.text=st[L.text];save();renderSettings()}},
+  'ls-del'(b){
+    const kind=b.dataset.kind,L=LISTS[kind],st=cls().settings;
+    if(ui.lsDel!==kind){ui.lsDel=kind;renderSettings();setTimeout(()=>{if(ui.lsDel===kind){ui.lsDel=null;renderSettings()}},4000);return}
+    const gone=st[L.id];store[L.sets]=store[L.sets].filter(x=>x.id!==gone);store.classes.forEach(k=>{if(k.settings[L.id]===gone)k.settings[L.id]=null});
+    ui.lsDel=null;save();renderSettings();
   },
+  'roles-now'(b){const c=cls(),r=cur(c);if(!r)return;giveRoles(c,r.groups,c.rounds.slice(1,4));save();renderEdit();b.textContent='Done';},
   'keep-titles'(b){
     const c=cls(),groups=liveGroups(c);if(!groups)return;
     c.settings.titleStyle='list';c.settings.titleList=groups.map(g=>g.title.replace(/[.,]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');c.settings.titleSetId=null;
@@ -1214,19 +1266,21 @@ const acts={
     if(!ui.edit)return;const id=b.dataset.id,groups=cur(cls()).groups;
     if(!ui.sel||ui.sel===id){ui.sel=ui.sel===id?null:id;return renderEdit()}
     const a=whereIs(groups,ui.sel),t=whereIs(groups,id);
-    if(a>=0&&t>=0&&a!==t){const A=groups[a].ids,B=groups[t].ids;A[A.indexOf(ui.sel)]=id;B[B.indexOf(id)]=ui.sel}
-    else if(a<0&&t>=0){groups[t].ids.push(ui.sel);markHere(ui.sel)}
+    const c=cls();
+    if(a>=0&&t>=0&&a!==t){const X=groups[a],Y=groups[t],A=X.ids,B=Y.ids;A[A.indexOf(ui.sel)]=id;B[B.indexOf(id)]=ui.sel;
+      if(X.roles||Y.roles){const rA=X.roles&&X.roles[ui.sel],rB=Y.roles&&Y.roles[id];if(X.roles){delete X.roles[ui.sel];if(rA)X.roles[id]=rA}if(Y.roles){delete Y.roles[id];if(rB)Y.roles[ui.sel]=rB}refillRoles(c,X);refillRoles(c,Y)}}
+    else if(a<0&&t>=0){groups[t].ids.push(ui.sel);markHere(ui.sel);refillRoles(c,groups[t])}
     else{ui.sel=id;return renderEdit()}
     ui.sel=null;save();renderEdit();
   },
   'ed-move'(b){
     if(!ui.edit||!ui.sel)return;const gi=+b.dataset.gi,groups=cur(cls()).groups,a=whereIs(groups,ui.sel);
-    if(a!==gi){if(a>=0)groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);groups[gi].ids.push(ui.sel);markHere(ui.sel);save()}
+    if(a!==gi){if(a>=0){groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);refillRoles(cls(),groups[a])}groups[gi].ids.push(ui.sel);markHere(ui.sel);if(!groups[gi].roles&&groups.some(g=>g.roles))groups[gi].roles={};refillRoles(cls(),groups[gi]);save()}
     ui.sel=null;renderEdit();
   },
   'ed-remove'(){
     if(!ui.sel)return;const groups=cur(cls()).groups,a=whereIs(groups,ui.sel);if(a<0)return;
-    groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);if(groups[a].marker===ui.sel)delete groups[a].marker;
+    groups[a].ids.splice(groups[a].ids.indexOf(ui.sel),1);if(groups[a].marker===ui.sel)delete groups[a].marker;refillRoles(cls(),groups[a]);
     const s=studentsOf(cls()).find(x=>x.id===ui.sel);if(s){s.absent=true;store.absentDay=today()}
     ui.sel=null;save();renderEdit();
   },
@@ -1275,7 +1329,8 @@ document.addEventListener('change',e=>{
     const again=document.querySelector(`.pick-add[data-scope="${t.dataset.scope}"]`);if(again)again.focus();return}
   if(t.id==='classpick'){store.currentId=t.value;ui.sel=null;ui.edit=false;ui.editRoster=false;ui.editSources=false;ui.draft.ids=[];ui.draft.who='';ui.confirmDel=false;ui.histStudent='';save();renderAll();return}
   if(t.id==='draft-who'){ui.draft.who=t.value;ui.draft.ids=ui.draft.ids.filter(id=>id!==t.value);renderRules();return}
-  if(t.id==='titleSet'){const set=store.titleSets.find(x=>x.id===t.value);if(set){c.settings.titleList=set.text;c.settings.titleSetId=set.id}else c.settings.titleSetId=null;ui.tsetDel=false;save();renderSettings();return}
+  if(t.classList.contains('ls-pick')){const L=LISTS[t.dataset.kind],set=store[L.sets].find(x=>x.id===t.value);if(set){c.settings[L.text]=set.text;c.settings[L.id]=set.id}else c.settings[L.id]=null;ui.lsDel=null;save();renderSettings();return}
+  if(t.id==='roles-on'){c.settings.roles=t.checked;save();renderSettings();return}
   if(t.id==='anim-style'){store.animStyle=t.value;save();renderPresentCtrls();return}
   if(t.id==='disp-quotes'||t.id==='disp-quotes-class'){store[t.id==='disp-quotes'?'showQuotes':'showQuotesClass']=t.checked;save();applyDisplay();renderDisplay();return}
   if(t.id==='leftover'){c.settings.leftover=t.value;save();renderSettings();return}
@@ -1290,7 +1345,8 @@ document.addEventListener('change',e=>{
 document.addEventListener('input',e=>{
   const t=e.target,c=cls();
   if(t.id==='num'){const v=parseInt(t.value,10);if(v>0){c.settings[c.settings.mode==='size'?'size':'count']=Math.min(60,v);save();$('#plan-summary').innerHTML=summary(plan(c))}return}
-  if(t.id==='titleList'){c.settings.titleList=t.value;save();const n=$('#title-count');if(n)n.textContent=titleCountNote(c.settings);const tb=$('#tset-bar');if(tb&&!ui.tsetMode)tb.innerHTML=tsetBar(c.settings);return}
+  if(t.id==='titleList'){c.settings.titleList=t.value;save();const n=$('#title-count');if(n)n.textContent=titleCountNote(c.settings);const tb=$('#title-bar');if(tb&&!ui.lsMode)tb.innerHTML=listBar('title',c.settings);return}
+  if(t.id==='roleList'){c.settings.roleList=t.value;save();const n=$('#role-count');if(n)n.textContent=roleCountNote(c.settings);const rb=$('#role-bar');if(rb&&!ui.lsMode)rb.innerHTML=listBar('role',c.settings);return}
   if(t.classList.contains('ctitle')){const g=c.custom.find(g=>g.id===t.dataset.cid);g.title=t.value;save();return}
   if(t.classList.contains('gtitle')&&cur(c)){cur(c).groups[+t.dataset.gi].title=t.value;save();return}
 });
@@ -1298,7 +1354,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(d.classList&&d.classL
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){if(!$('#pick').hidden){$('#pick').hidden=true;return}if(!$('#present').hidden)closePresent()}
   if(e.key==='Enter'&&e.target.id==='classname')acts['class-ok']();
-  if(e.key==='Enter'&&e.target.id==='tset-name')acts['tset-ok']();
+  if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('ls-name'))acts['ls-ok'](e.target);
 });
 let fitTimer=null;const refit=()=>{clearTimeout(fitTimer);fitTimer=setTimeout(()=>{if(!ui.dealing)fitPresent()},120)};
 window.addEventListener('resize',refit);document.addEventListener('fullscreenchange',refit);
