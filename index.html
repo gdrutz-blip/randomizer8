@@ -196,6 +196,8 @@ details.backup[open] summary{margin-bottom:10px}
 .mem.sel .mk{color:inherit}
 .moveto{align-self:flex-start;border-style:dashed}
 span.mem{cursor:default}
+.eye{margin:-6px -8px -6px 0}
+.hidden-note{margin:0;font-size:14px;padding:10px 12px;border-radius:9px;background:var(--surface-2)}
 .role{font-family:var(--font-body);font-size:.55em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--m);border:1.5px solid currentColor;border-radius:999px;padding:.1em .55em;margin-left:.35em;white-space:nowrap;line-height:1.2}
 .mem .role{font-size:11px;margin-left:auto}
 .mem.sel .role{color:inherit}
@@ -305,10 +307,10 @@ span.mem:hover{background:transparent}
   <section class="setup" aria-label="Setup">
     <div class="tray"><h2>Who’s here today</h2><div id="students" class="stack"></div></div>
     <div class="tray"><h2>Group size</h2><div id="settings" class="stack" style="gap:12px"></div></div>
-    <div class="tray"><h2>Rules</h2><div id="rules" class="stack"></div></div>
+    <div class="tray"><div class="tray-head"><h2>Rules</h2><button class="btn ghost small eye" data-act="toggle-rules" id="rules-eye"></button></div><div id="rules" class="stack"></div></div>
     <div class="tray">
-      <h2>Set groups</h2>
-      <p class="note">Put specific students in a group of their own size. Leave size blank to match the other groups and fill the rest at random.</p>
+      <div class="tray-head"><h2>Set groups</h2><button class="btn ghost small eye" data-act="toggle-rules" id="custom-eye"></button></div>
+      <p class="note" id="custom-note">Put specific students in a group of their own size. Leave size blank to match the other groups and fill the rest at random.</p>
       <div id="custom" class="stack"></div>
     </div>
     <div class="tray"><h2>Display</h2><div id="display" class="stack"></div></div>
@@ -486,7 +488,7 @@ function normalize(s){
   if(!s.classes.length)s.classes.push(newClass('My class'));
   if(!s.classes.some(c=>c.id===s.currentId))s.currentId=s.classes[0].id;
   s.seed=Math.max(s.seed||0,3);
-  s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];s.roleSets=Array.isArray(s.roleSets)?s.roleSets:[];
+  s.titleSets=Array.isArray(s.titleSets)?s.titleSets:[];s.hideRules=!!s.hideRules;s.roleSets=Array.isArray(s.roleSets)?s.roleSets:[];
   s.showQuotes=s.showQuotes!==false;s.showQuotesClass=s.showQuotesClass!==false;delete s.quoteFacts;
   s.skin=s.skin||'auto';if(s.anim==='off'){s.anim='full';s.animStyle='none'}s.anim=s.anim==='quick'?'quick':'full';s.animStyle=s.animStyle||'tumble';s.pickNoRepeat=s.pickNoRepeat!==false;
   return s;
@@ -647,7 +649,7 @@ function check(c,groups){
       issues.push(`${ids.map(id=>'<b>'+nm(id)+'</b>').join(', ')} should be together but are split up.`);
     }
   });
-  groups.forEach(g=>{if(g.ids.length===1){const cg=g.customId&&c.custom.find(x=>x.id===g.customId);if(!(cg&&cg.size===1))issues.push(`<b>${nm(g.ids[0])}</b> is on their own in ${esc(g.title)}.`)}});
+  groups.forEach(g=>{if(g.ids.length===1){const cg=g.customId&&c.custom.find(x=>x.id===g.customId);if(!(cg&&cg.size===1))issues.push({solo:true,t:`<b>${nm(g.ids[0])}</b> is on their own in ${esc(g.title)}.`})}});
   c.custom.forEach(cg=>{
     const gi=groups.findIndex(g=>g.customId===cg.id);if(gi<0)return;
     cg.ids.forEach(id=>{if(where[id]!==undefined&&where[id]!==gi)issues.push(`<b>${nm(id)}</b> is set to be in ${esc(groups[gi].title)} but was moved out.`)});
@@ -759,8 +761,15 @@ function ruleConflicts(c){
   });
   return [...new Set(out)];
 }
+const eyeLabel=()=>store.hideRules?'Show':'Hide';
+const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 function renderRules(){
   const c=cls(),d=ui.draft,el=$('#rules');const rules=rulesOf(c);const clash=ruleConflicts(c);
+  const eye=$('#rules-eye');eye.textContent=eyeLabel();eye.title=store.hideRules?'Show the rules':'Hide the rules (and set groups) on this screen';
+  if(store.hideRules){
+    el.innerHTML=`<p class="hidden-note">Rules are hidden. ${rules.length?`${plural(rules.length,'rule')} still ${rules.length===1?'applies':'apply'} every time you shuffle.`:'There are no rules yet.'}${clash.length?' <b>Some rules contradict each other.</b>':''}</p>`;
+    return;
+  }
   el.innerHTML=`${clash.map(t=>`<p class="issue">These rules can’t both be met: ${t} The Randomizer will get as close as it can and show a warning after each shuffle.</p>`).join('')}<div class="rules">${rules.map(r=>`<div class="rule"><span class="tag ${r.type}">${r.type==='apart'?'Apart':r.type==='oneof'?'One of':r.type==='min3'?'3 or more':'Together'}</span><span class="names">${r.type==='oneof'?`<b>${esc(nameOf(r.who))}</b> with ${r.ids.map(id=>esc(nameOf(id))).join(' or ')}`:r.ids.map(id=>esc(nameOf(id))).join(', ')+(r.type==='min3'?' <span class="from">always in a group of 3+</span>':'')}</span>${r.from?`<span class="from">from ${esc(r.from)}</span>`:`<button class="btn ghost small" data-act="rule-del" data-id="${r.id}">Remove</button>`}</div>`).join('')||'<p class="note">No rules yet.</p>'}</div>
   <div class="draft">
     <div class="seg seg4" role="radiogroup" aria-label="Rule type">
@@ -775,6 +784,13 @@ function renderRules(){
 }
 function renderCustom(){
   const c=cls(),el=$('#custom');
+  const eye=$('#custom-eye');eye.textContent=eyeLabel();eye.title=store.hideRules?'Show set groups':'Hide set groups (and rules) on this screen';
+  $('#custom-note').hidden=store.hideRules;
+  if(store.hideRules){
+    const n=c.custom.filter(g=>g.ids.length).length;
+    el.innerHTML=`<p class="hidden-note">Set groups are hidden. ${n?`${plural(n,'set group')} still ${n===1?'applies':'apply'} every time you shuffle.`:'There are no set groups yet.'}</p>`;
+    return;
+  }
   el.innerHTML=c.custom.map(g=>{
     const elsewhere=new Set();c.custom.forEach(o=>{if(o.id!==g.id)o.ids.forEach(id=>elsewhere.add(id))});
     return `<div class="special"><div class="special-head">
@@ -810,7 +826,9 @@ function renderResults(){
     <ul>${g.ids.map(id=>ui.edit?`<li><button class="mem${sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</button></li>`:`<li><span class="mem"><span class="mn">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</span></li>`).join('')||'<li class="note" style="padding:5px 8px">Empty</li>'}</ul>
     ${sel&&selIn!==gi?`<button class="btn small moveto" data-act="ed-move" data-gi="${gi}">${selIn<0?'Put':'Move'} ${esc(nameOf(sel))} here</button>`:''}</article>`).join('');
   const issues=check(c,groups);
-  issuesEl.innerHTML=issues.length?issues.map(t=>`<p class="issue">${t}</p>`).join(''):(rulesOf(c).length||c.custom.length?'<p class="allgood">Every rule is met.</p>':'');
+  const ruleIssues=issues.filter(x=>!x.solo),solo=issues.filter(x=>x.solo).map(x=>x.t);
+  const shown=store.hideRules?(ruleIssues.length?[`${plural(ruleIssues.length,'rule')} ${ruleIssues.length===1?"wasn't":"weren't"} met. Click <b>Show</b> on Rules to see which.`]:[]):ruleIssues;
+  issuesEl.innerHTML=issues.length?shown.concat(solo).map(t=>`<p class="issue">${t}</p>`).join(''):(rulesOf(c).length||c.custom.length?'<p class="allgood">Every rule is met.</p>':'');
   $('#keep-row').innerHTML=`<button class="btn small" data-act="keep-titles">Keep these group names</button><span class="note">Renamed a group above? This uses the same names next time you shuffle.</span>`;
   $('#swap-hint').innerHTML=ui.edit?'':`Need to change something? Click <b>Edit groups</b> to swap students, move them, or take someone out. Click a group name to rename it.${c.settings.marker?' The marker icon shows who writes first.':''}`;
 }
@@ -892,7 +910,7 @@ function renderPresent(){
     fitPresent();return;
   }
   grid.style.display='';
-  const broken=check(c,groups).length;
+  const broken=check(c,groups).filter(x=>!x.solo).length;
   $('#present-sub').textContent=(c.settings.titleStyle==='boards'?'Find your board!':'Find your group!')+(broken?` · ⚠ ${broken} rule${broken===1?'':'s'} not met (see teacher view)`:'');
   const ed=ui.edit;
   grid.innerHTML=groups.map((g,gi)=>`<section class="pcard${ed?' editing':''}" style="--m:var(--m${gi%6+1})"${ed?` data-act="ed-move" data-gi="${gi}"`:''}><h3>${esc(g.title)}</h3><ul>${g.ids.map(id=>ed?`<li class="pn"><button class="pn-btn${ui.sel===id?' sel':''}" data-act="ed-pick" data-id="${id}"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</button></li>`:`<li class="pn"><span class="pname">${esc(nameOf(id))}</span>${g.marker===id?MARKER:''}${roleTag(g,id)}</li>`).join('')||(ed?'<li class="pn pn-empty">Empty</li>':'')}</ul></section>`).join('');
@@ -1178,6 +1196,7 @@ function groupsText(){
 function checkedSources(){return [...document.querySelectorAll('.srcbox:checked')].map(b=>b.value)}
 
 const acts={
+  'toggle-rules'(){store.hideRules=!store.hideRules;save();renderRules();renderCustom();renderResults()},
   'ls-new'(b){ui.lsMode={kind:b.dataset.kind,mode:'new'};ui.lsDel=null;renderSettings();setTimeout(()=>{const i=$(`#${b.dataset.kind}-ls-name`);if(i)i.focus()})},
   'ls-rename'(b){ui.lsMode={kind:b.dataset.kind,mode:'rename'};ui.lsDel=null;renderSettings();setTimeout(()=>{const i=$(`#${b.dataset.kind}-ls-name`);if(i){i.focus();i.select()}})},
   'ls-cancel'(){ui.lsMode=null;renderSettings()},
